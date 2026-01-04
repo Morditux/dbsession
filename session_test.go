@@ -1,0 +1,205 @@
+package dbsession
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"testing"
+	"time"
+)
+
+func TestSQLiteStore(t *testing.T) {
+	dbPath := "test.db"
+	defer os.Remove(dbPath)
+
+	store, err := NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	s := &Session{
+		ID:        "test-session",
+		Values:    map[string]any{"foo": "bar", "count": 42},
+		CreatedAt: time.Now(),
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+
+	// Test Save
+	if err := store.Save(ctx, s); err != nil {
+		t.Errorf("failed to save session: %v", err)
+	}
+
+	// Test Get
+	got, err := store.Get(ctx, s.ID)
+	if err != nil {
+		t.Errorf("failed to get session: %v", err)
+	}
+	if got == nil {
+		t.Fatal("session not found")
+	}
+	if got.ID != s.ID {
+		t.Errorf("expected ID %s, got %s", s.ID, got.ID)
+	}
+	if got.Values["foo"] != "bar" || got.Values["count"].(int) != 42 {
+		t.Errorf("unexpected values: %v", got.Values)
+	}
+
+	// Test Delete
+	if err := store.Delete(ctx, s.ID); err != nil {
+		t.Errorf("failed to delete session: %v", err)
+	}
+	got, err = store.Get(ctx, s.ID)
+	if err != nil {
+		t.Errorf("failed to get session after delete: %v", err)
+	}
+	if got != nil {
+		t.Error("expected session to be deleted")
+	}
+
+	// Test Cleanup
+	expired := &Session{
+		ID:        "expired-session",
+		Values:    map[string]any{"key": "val"},
+		CreatedAt: time.Now().Add(-2 * time.Hour),
+		ExpiresAt: time.Now().Add(-time.Hour),
+	}
+	if err := store.Save(ctx, expired); err != nil {
+		t.Errorf("failed to save expired session: %v", err)
+	}
+
+	if err := store.Cleanup(ctx); err != nil {
+		t.Errorf("failed cleanup: %v", err)
+	}
+
+	got, err = store.Get(ctx, expired.ID)
+	if err != nil {
+		t.Errorf("failed to get after cleanup: %v", err)
+	}
+	if got != nil {
+		t.Error("expected expired session to be cleaned up")
+	}
+}
+
+func TestManager(t *testing.T) {
+	dbPath := "test_mgr.db"
+	defer os.Remove(dbPath)
+
+	store, err := NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	mgr := NewManager(Config{
+		Store: store,
+		TTL:   time.Minute,
+	})
+	defer mgr.Close()
+
+	// Test New and Save
+	s := mgr.New()
+	s.Values["user"] = "mordicus"
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+
+	if err := mgr.Save(w, r, s); err != nil {
+		t.Fatalf("failed to save: %v", err)
+	}
+
+	// Verify cookie
+	resp := w.Result()
+	cookies := resp.Cookies()
+	var sessionCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == "session_id" {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatal("session cookie not found")
+	}
+
+	// Test Get with cookie
+	r2 := httptest.NewRequest("GET", "/", nil)
+	r2.AddCookie(sessionCookie)
+
+	s2, err := mgr.Get(r2)
+	if err != nil {
+		t.Fatalf("failed to get: %v", err)
+	}
+	if s2.ID != s.ID {
+		t.Errorf("ID mismatch: %s != %s", s2.ID, s.ID)
+	}
+	if s2.Values["user"] != "mordicus" {
+		t.Errorf("value mismatch: %v", s2.Values["user"])
+	}
+
+	// Test Destroy
+	w3 := httptest.NewRecorder()
+	if err := mgr.Destroy(w3, r2, s2); err != nil {
+		t.Fatalf("failed to destroy: %v", err)
+	}
+
+	// Verify cookie removal
+	resp3 := w3.Result()
+	cookies3 := resp3.Cookies()
+	found := false
+	for _, c := range cookies3 {
+		if c.Name == "session_id" && c.MaxAge < 0 {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("session cookie removal not found in response")
+	}
+}
+
+func TestMemcachedStore(t *testing.T) {
+	// Memcached is often not available in CI/local envs by default.
+	// We'll try to connect and skip if it fails.
+	server := "127.0.0.1:11211"
+	store := NewMemcachedStore(time.Minute, server)
+
+	// Simple check to see if memcached is up
+	ctx := context.Background()
+	testSession := &Session{
+		ID:        "test-memcached",
+		Values:    map[string]any{"color": "blue"},
+		CreatedAt: time.Now(),
+		ExpiresAt: time.Now().Add(time.Minute),
+	}
+
+	err := store.Save(ctx, testSession)
+	if err != nil {
+		t.Skipf("Skipping Memcached test: %v (is memcached running on %s?)", err, server)
+	}
+
+	// Test Get
+	got, err := store.Get(ctx, testSession.ID)
+	if err != nil {
+		t.Fatalf("failed to get from memcached: %v", err)
+	}
+	if got == nil {
+		t.Fatal("session not found in memcached")
+	}
+	if got.Values["color"] != "blue" {
+		t.Errorf("expected color blue, got %v", got.Values["color"])
+	}
+
+	// Test Delete
+	if err := store.Delete(ctx, testSession.ID); err != nil {
+		t.Errorf("failed to delete from memcached: %v", err)
+	}
+	got, err = store.Get(ctx, testSession.ID)
+	if err != nil {
+		t.Errorf("failed to get after delete: %v", err)
+	}
+	if got != nil {
+		t.Error("expected session to be deleted from memcached")
+	}
+}
