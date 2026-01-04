@@ -33,14 +33,15 @@ func main() {
 			return
 		}
 
+		// Use thread-safe Get/Set methods
 		count := 0
-		if val, ok := session.Values["count"]; ok {
+		if val, ok := session.Get("count"); ok {
 			if c, ok := val.(int); ok {
 				count = c
 			}
 		}
 		count++
-		session.Values["count"] = count
+		session.Set("count", count)
 
 		// Save session
 		if err := mgr.Save(w, r, session); err != nil {

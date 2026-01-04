@@ -2,6 +2,7 @@ package dbsession
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
@@ -11,6 +12,32 @@ type Session struct {
 	Values    map[string]any
 	CreatedAt time.Time
 	ExpiresAt time.Time
+	mu        sync.RWMutex
+}
+
+// Get retrieves a value from the session in a thread-safe manner.
+func (s *Session) Get(key string) (any, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	val, ok := s.Values[key]
+	return val, ok
+}
+
+// Set stores a value in the session in a thread-safe manner.
+func (s *Session) Set(key string, val any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Values == nil {
+		s.Values = make(map[string]any)
+	}
+	s.Values[key] = val
+}
+
+// Delete removes a value from the session in a thread-safe manner.
+func (s *Session) Delete(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.Values, key)
 }
 
 // Store defines the interface for session persistence.

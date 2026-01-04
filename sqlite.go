@@ -6,19 +6,65 @@ import (
 	"database/sql"
 	"encoding/gob"
 	"fmt"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
 
+var bufferPool = sync.Pool{
+	New: func() any {
+		return new(bytes.Buffer)
+	},
+}
+
 type SQLiteStore struct {
 	db *sql.DB
 }
 
+// SQLiteConfig holds configuration for the SQLite store.
+type SQLiteConfig struct {
+	DSN             string
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
+}
+
 func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
-	db, err := sql.Open("sqlite", dsn)
+	return NewSQLiteStoreWithConfig(SQLiteConfig{
+		DSN:          dsn,
+		MaxOpenConns: 1, // SQLite works best with a single connection for writes
+		MaxIdleConns: 1,
+	})
+}
+
+func NewSQLiteStoreWithConfig(cfg SQLiteConfig) (*SQLiteStore, error) {
+	db, err := sql.Open("sqlite", cfg.DSN)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
+	}
+
+	// Configure connection pool
+	if cfg.MaxOpenConns > 0 {
+		db.SetMaxOpenConns(cfg.MaxOpenConns)
+	}
+	if cfg.MaxIdleConns > 0 {
+		db.SetMaxIdleConns(cfg.MaxIdleConns)
+	}
+	if cfg.ConnMaxLifetime > 0 {
+		db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
+	}
+
+	// Enable WAL mode for better concurrent writes
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
+	}
+
+	// Set busy timeout to wait instead of failing immediately
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to set busy_timeout: %w", err)
 	}
 
 	// Create table if not exists
@@ -72,8 +118,11 @@ func (s *SQLiteStore) Get(ctx context.Context, id string) (*Session, error) {
 }
 
 func (s *SQLiteStore) Save(ctx context.Context, session *Session) error {
-	var buf bytes.Buffer
-	if err := gob.NewEncoder(&buf).Encode(session.Values); err != nil {
+	buf := bufferPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	defer bufferPool.Put(buf)
+
+	if err := gob.NewEncoder(buf).Encode(session.Values); err != nil {
 		return fmt.Errorf("failed to encode session data: %w", err)
 	}
 

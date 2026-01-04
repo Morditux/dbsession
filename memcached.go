@@ -5,10 +5,17 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
 )
+
+var mcBufferPool = sync.Pool{
+	New: func() any {
+		return new(bytes.Buffer)
+	},
+}
 
 // MemcachedStore implements the Store interface using Memcached.
 type MemcachedStore struct {
@@ -59,13 +66,16 @@ func (s *MemcachedStore) Get(ctx context.Context, id string) (*Session, error) {
 
 // Save stores a session in Memcached.
 func (s *MemcachedStore) Save(ctx context.Context, session *Session) error {
-	var buf bytes.Buffer
+	buf := mcBufferPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	defer mcBufferPool.Put(buf)
+
 	env := sessionEnvelope{
 		Values:    session.Values,
 		CreatedAt: session.CreatedAt,
 		ExpiresAt: session.ExpiresAt,
 	}
-	if err := gob.NewEncoder(&buf).Encode(env); err != nil {
+	if err := gob.NewEncoder(buf).Encode(env); err != nil {
 		return fmt.Errorf("failed to encode session data: %w", err)
 	}
 

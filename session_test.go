@@ -203,3 +203,159 @@ func TestMemcachedStore(t *testing.T) {
 		t.Error("expected session to be deleted from memcached")
 	}
 }
+
+// Benchmarks
+
+func BenchmarkSQLiteStore_Save(b *testing.B) {
+	dbPath := "bench_sqlite.db"
+	defer os.Remove(dbPath)
+
+	store, err := NewSQLiteStore(dbPath)
+	if err != nil {
+		b.Fatalf("failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		session := &Session{
+			ID:        "bench-session",
+			Values:    map[string]any{"key": "value", "count": i},
+			CreatedAt: time.Now(),
+			ExpiresAt: time.Now().Add(time.Hour),
+		}
+		if err := store.Save(ctx, session); err != nil {
+			b.Fatalf("failed to save: %v", err)
+		}
+	}
+}
+
+func BenchmarkSQLiteStore_Get(b *testing.B) {
+	dbPath := "bench_sqlite_get.db"
+	defer os.Remove(dbPath)
+
+	store, err := NewSQLiteStore(dbPath)
+	if err != nil {
+		b.Fatalf("failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	session := &Session{
+		ID:        "bench-get-session",
+		Values:    map[string]any{"key": "value"},
+		CreatedAt: time.Now(),
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+	if err := store.Save(ctx, session); err != nil {
+		b.Fatalf("failed to save: %v", err)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := store.Get(ctx, session.ID)
+		if err != nil {
+			b.Fatalf("failed to get: %v", err)
+		}
+	}
+}
+
+func BenchmarkMemcachedStore_Save(b *testing.B) {
+	server := "127.0.0.1:11211"
+	store := NewMemcachedStore(time.Hour, server)
+
+	ctx := context.Background()
+
+	// Check if memcached is available
+	testSession := &Session{
+		ID:        "bench-mc-test",
+		Values:    map[string]any{"test": true},
+		CreatedAt: time.Now(),
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+	if err := store.Save(ctx, testSession); err != nil {
+		b.Skipf("Skipping Memcached benchmark: %v", err)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		session := &Session{
+			ID:        "bench-mc-session",
+			Values:    map[string]any{"key": "value", "count": i},
+			CreatedAt: time.Now(),
+			ExpiresAt: time.Now().Add(time.Hour),
+		}
+		if err := store.Save(ctx, session); err != nil {
+			b.Fatalf("failed to save: %v", err)
+		}
+	}
+}
+
+func BenchmarkMemcachedStore_Get(b *testing.B) {
+	server := "127.0.0.1:11211"
+	store := NewMemcachedStore(time.Hour, server)
+
+	ctx := context.Background()
+	session := &Session{
+		ID:        "bench-mc-get-session",
+		Values:    map[string]any{"key": "value"},
+		CreatedAt: time.Now(),
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+	if err := store.Save(ctx, session); err != nil {
+		b.Skipf("Skipping Memcached benchmark: %v", err)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, err := store.Get(ctx, session.ID)
+		if err != nil {
+			b.Fatalf("failed to get: %v", err)
+		}
+	}
+}
+
+// Parallel benchmarks
+
+func BenchmarkSQLiteStore_SaveParallel(b *testing.B) {
+	// SQLite is not designed for high-concurrency parallel writes.
+	// For high write concurrency, use Memcached or another distributed store.
+	b.Skip("SQLite parallel writes not supported - use Memcached for concurrent workloads")
+}
+
+func BenchmarkMemcachedStore_SaveParallel(b *testing.B) {
+	server := "127.0.0.1:11211"
+	store := NewMemcachedStore(time.Hour, server)
+
+	ctx := context.Background()
+
+	// Check if memcached is available
+	testSession := &Session{
+		ID:        "bench-mc-parallel-test",
+		Values:    map[string]any{"test": true},
+		CreatedAt: time.Now(),
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+	if err := store.Save(ctx, testSession); err != nil {
+		b.Skipf("Skipping Memcached benchmark: %v", err)
+	}
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			session := &Session{
+				ID:        generateID(),
+				Values:    map[string]any{"key": "value", "count": i},
+				CreatedAt: time.Now(),
+				ExpiresAt: time.Now().Add(time.Hour),
+			}
+			if err := store.Save(ctx, session); err != nil {
+				b.Errorf("failed to save: %v", err)
+			}
+			i++
+		}
+	})
+}
