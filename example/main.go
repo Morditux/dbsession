@@ -33,8 +33,12 @@ func main() {
 			return
 		}
 
-		// Read value from session
-		count, _ := session.Values["count"].(int)
+		count := 0
+		if val, ok := session.Values["count"]; ok {
+			if c, ok := val.(int); ok {
+				count = c
+			}
+		}
 		count++
 		session.Values["count"] = count
 

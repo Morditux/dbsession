@@ -45,6 +45,10 @@ func (s *MemcachedStore) Get(ctx context.Context, id string) (*Session, error) {
 		return nil, fmt.Errorf("failed to decode session data: %w", err)
 	}
 
+	if env.Values == nil {
+		env.Values = make(map[string]any)
+	}
+
 	return &Session{
 		ID:        id,
 		Values:    env.Values,

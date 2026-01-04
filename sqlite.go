@@ -59,6 +59,10 @@ func (s *SQLiteStore) Get(ctx context.Context, id string) (*Session, error) {
 		return nil, fmt.Errorf("failed to decode session data: %w", err)
 	}
 
+	if values == nil {
+		values = make(map[string]any)
+	}
+
 	return &Session{
 		ID:        rowID,
 		Values:    values,
