@@ -19,7 +19,11 @@ var bufferPool = sync.Pool{
 }
 
 type SQLiteStore struct {
-	db *sql.DB
+	db          *sql.DB
+	saveStmt    *sql.Stmt
+	getStmt     *sql.Stmt
+	deleteStmt  *sql.Stmt
+	cleanupStmt *sql.Stmt
 }
 
 // SQLiteConfig holds configuration for the SQLite store.
@@ -82,7 +86,40 @@ func NewSQLiteStoreWithConfig(cfg SQLiteConfig) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("failed to create sessions table: %w", err)
 	}
 
-	return &SQLiteStore{db: db}, nil
+	store := &SQLiteStore{db: db}
+
+	// Prepare statements
+	store.saveStmt, err = db.Prepare(`
+		INSERT INTO sessions (id, data, created_at, expires_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			data = excluded.data,
+			expires_at = excluded.expires_at
+	`)
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to prepare save statement: %w", err)
+	}
+
+	store.getStmt, err = db.Prepare("SELECT id, data, created_at, expires_at FROM sessions WHERE id = ? AND expires_at > ?")
+	if err != nil {
+		store.Close()
+		return nil, fmt.Errorf("failed to prepare get statement: %w", err)
+	}
+
+	store.deleteStmt, err = db.Prepare("DELETE FROM sessions WHERE id = ?")
+	if err != nil {
+		store.Close()
+		return nil, fmt.Errorf("failed to prepare delete statement: %w", err)
+	}
+
+	store.cleanupStmt, err = db.Prepare("DELETE FROM sessions WHERE expires_at < ?")
+	if err != nil {
+		store.Close()
+		return nil, fmt.Errorf("failed to prepare cleanup statement: %w", err)
+	}
+
+	return store, nil
 }
 
 func (s *SQLiteStore) Get(ctx context.Context, id string) (*Session, error) {
@@ -90,7 +127,7 @@ func (s *SQLiteStore) Get(ctx context.Context, id string) (*Session, error) {
 	var data []byte
 	var createdAt, expiresAt time.Time
 
-	err := s.db.QueryRowContext(ctx, "SELECT id, data, created_at, expires_at FROM sessions WHERE id = ? AND expires_at > ?", id, time.Now()).
+	err := s.getStmt.QueryRowContext(ctx, id, time.Now()).
 		Scan(&rowID, &data, &createdAt, &expiresAt)
 
 	if err == sql.ErrNoRows {
@@ -126,13 +163,7 @@ func (s *SQLiteStore) Save(ctx context.Context, session *Session) error {
 		return fmt.Errorf("failed to encode session data: %w", err)
 	}
 
-	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO sessions (id, data, created_at, expires_at)
-		VALUES (?, ?, ?, ?)
-		ON CONFLICT(id) DO UPDATE SET
-			data = excluded.data,
-			expires_at = excluded.expires_at
-	`, session.ID, buf.Bytes(), session.CreatedAt, session.ExpiresAt)
+	_, err := s.saveStmt.ExecContext(ctx, session.ID, buf.Bytes(), session.CreatedAt, session.ExpiresAt)
 
 	if err != nil {
 		return fmt.Errorf("failed to save session: %w", err)
@@ -141,7 +172,7 @@ func (s *SQLiteStore) Save(ctx context.Context, session *Session) error {
 }
 
 func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM sessions WHERE id = ?", id)
+	_, err := s.deleteStmt.ExecContext(ctx, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete session: %w", err)
 	}
@@ -149,7 +180,7 @@ func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 }
 
 func (s *SQLiteStore) Cleanup(ctx context.Context) error {
-	_, err := s.db.ExecContext(ctx, "DELETE FROM sessions WHERE expires_at < ?", time.Now())
+	_, err := s.cleanupStmt.ExecContext(ctx, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to cleanup expired sessions: %w", err)
 	}
@@ -157,6 +188,18 @@ func (s *SQLiteStore) Cleanup(ctx context.Context) error {
 }
 
 func (s *SQLiteStore) Close() error {
+	if s.saveStmt != nil {
+		s.saveStmt.Close()
+	}
+	if s.getStmt != nil {
+		s.getStmt.Close()
+	}
+	if s.deleteStmt != nil {
+		s.deleteStmt.Close()
+	}
+	if s.cleanupStmt != nil {
+		s.cleanupStmt.Close()
+	}
 	return s.db.Close()
 }
 
