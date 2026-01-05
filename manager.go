@@ -14,6 +14,9 @@ type Manager struct {
 	cookie   string
 	cleanup  time.Duration
 	stopChan chan struct{}
+	httpOnly bool
+	secure   *bool
+	sameSite http.SameSite
 }
 
 type Config struct {
@@ -21,6 +24,9 @@ type Config struct {
 	TTL             time.Duration
 	CookieName      string
 	CleanupInterval time.Duration
+	HttpOnly        *bool
+	Secure          *bool
+	SameSite        http.SameSite
 }
 
 func NewManager(cfg Config) *Manager {
@@ -40,6 +46,17 @@ func NewManager(cfg Config) *Manager {
 		cookie:   cfg.CookieName,
 		cleanup:  cfg.CleanupInterval,
 		stopChan: make(chan struct{}),
+		httpOnly: true, // Default
+		secure:   cfg.Secure,
+		sameSite: http.SameSiteLaxMode, // Default
+	}
+
+	if cfg.HttpOnly != nil {
+		m.httpOnly = *cfg.HttpOnly
+	}
+
+	if cfg.SameSite != 0 {
+		m.sameSite = cfg.SameSite
 	}
 
 	go m.cleanupWorker()
@@ -92,14 +109,19 @@ func (m *Manager) Save(w http.ResponseWriter, r *http.Request, s *Session) error
 		return err
 	}
 
+	secure := r.TLS != nil
+	if m.secure != nil {
+		secure = *m.secure
+	}
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     m.cookie,
 		Value:    s.ID,
 		Path:     "/",
 		Expires:  s.ExpiresAt,
-		HttpOnly: true,
-		Secure:   r.TLS != nil,
-		SameSite: http.SameSiteLaxMode,
+		HttpOnly: m.httpOnly,
+		Secure:   secure,
+		SameSite: m.sameSite,
 	})
 
 	return nil
@@ -115,7 +137,8 @@ func (m *Manager) Destroy(w http.ResponseWriter, r *http.Request, s *Session) er
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
-		HttpOnly: true,
+		HttpOnly: m.httpOnly,
+		SameSite: m.sameSite,
 	})
 
 	return nil
