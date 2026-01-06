@@ -83,6 +83,67 @@ func TestSQLiteStore(t *testing.T) {
 	}
 }
 
+func TestManager_Regenerate(t *testing.T) {
+	// Setup
+	store, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	manager := NewManager(Config{
+		Store: store,
+	})
+	defer manager.Close()
+
+	// 1. Create a session
+	req := httptest.NewRequest("GET", "/", nil)
+	w := httptest.NewRecorder()
+
+	session, err := manager.Get(req)
+	if err != nil {
+		t.Fatalf("failed to get session: %v", err)
+	}
+
+	session.Set("user_id", "123")
+	if err := manager.Save(w, req, session); err != nil {
+		t.Fatalf("failed to save session: %v", err)
+	}
+
+	oldID := session.ID
+
+	// 2. Regenerate
+	if err := manager.Regenerate(w, req, session); err != nil {
+		t.Fatalf("failed to regenerate session: %v", err)
+	}
+
+	// Check results
+	if session.ID == oldID {
+		t.Errorf("expected new session ID, got same ID")
+	}
+
+	val, ok := session.Get("user_id")
+	if !ok || val != "123" {
+		t.Errorf("expected user_id=123, got %v", val)
+	}
+
+	// Verify old session is gone
+	oldSess, err := store.Get(context.Background(), oldID)
+	if err != nil {
+		t.Fatalf("failed to check old session: %v", err)
+	}
+	if oldSess != nil {
+		t.Errorf("old session still exists")
+	}
+
+	// Verify new session is persisted
+	newSess, err := store.Get(context.Background(), session.ID)
+	if err != nil {
+		t.Fatalf("failed to check new session: %v", err)
+	}
+	if newSess == nil {
+		t.Errorf("new session not found in store")
+	}
+}
+
 func TestManager(t *testing.T) {
 	dbPath := "test_mgr.db"
 	defer os.Remove(dbPath)
