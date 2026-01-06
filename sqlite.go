@@ -101,7 +101,7 @@ func NewSQLiteStoreWithConfig(cfg SQLiteConfig) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("failed to prepare save statement: %w", err)
 	}
 
-	store.getStmt, err = db.Prepare("SELECT id, data, created_at, expires_at FROM sessions WHERE id = ? AND expires_at > ?")
+	store.getStmt, err = db.Prepare("SELECT data, created_at, expires_at FROM sessions WHERE id = ? AND expires_at > ?")
 	if err != nil {
 		store.Close()
 		return nil, fmt.Errorf("failed to prepare get statement: %w", err)
@@ -123,21 +123,28 @@ func NewSQLiteStoreWithConfig(cfg SQLiteConfig) (*SQLiteStore, error) {
 }
 
 func (s *SQLiteStore) Get(ctx context.Context, id string) (*Session, error) {
-	var rowID string
-	var data []byte
+	var data sql.RawBytes
 	var createdAt, expiresAt time.Time
 
-	err := s.getStmt.QueryRowContext(ctx, id, time.Now()).
-		Scan(&rowID, &data, &createdAt, &expiresAt)
-
-	if err == sql.ErrNoRows {
-		return nil, nil // Not found or expired
-	}
+	rows, err := s.getStmt.QueryContext(ctx, id, time.Now())
 	if err != nil {
 		return nil, fmt.Errorf("failed to query session: %w", err)
 	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("failed to iterate rows: %w", err)
+		}
+		return nil, nil // Not found or expired
+	}
+
+	if err := rows.Scan(&data, &createdAt, &expiresAt); err != nil {
+		return nil, fmt.Errorf("failed to scan session: %w", err)
+	}
 
 	var values map[string]any
+	// data is valid only until next Scan/Close. gob.NewDecoder reads from it immediately.
 	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&values); err != nil {
 		return nil, fmt.Errorf("failed to decode session data: %w", err)
 	}
@@ -147,7 +154,7 @@ func (s *SQLiteStore) Get(ctx context.Context, id string) (*Session, error) {
 	}
 
 	return &Session{
-		ID:        rowID,
+		ID:        id,
 		Values:    values,
 		CreatedAt: createdAt,
 		ExpiresAt: expiresAt,
