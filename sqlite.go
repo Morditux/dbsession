@@ -65,6 +65,13 @@ func NewSQLiteStoreWithConfig(cfg SQLiteConfig) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
 	}
 
+	// Optimize write performance by reducing fsyncs
+	// WAL + synchronous=NORMAL is safe and much faster
+	if _, err := db.Exec("PRAGMA synchronous=NORMAL"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to set synchronous mode: %w", err)
+	}
+
 	// Set busy timeout to wait instead of failing immediately
 	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
 		db.Close()
