@@ -72,6 +72,43 @@ func TestSecurityConfig(t *testing.T) {
 			t.Error("Secure should be forced to true")
 		}
 	})
+
+	t.Run("Destroy Respects Secure Setting", func(t *testing.T) {
+		secure := true
+		mgr := NewManager(Config{
+			Store:  store,
+			Secure: &secure,
+		})
+		defer mgr.Close()
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest("GET", "/", nil)
+		s := mgr.New()
+
+		// Save first to verify Secure is set on creation
+		if err := mgr.Save(w, r, s); err != nil {
+			t.Fatalf("Save failed: %v", err)
+		}
+		c := w.Result().Cookies()[0]
+		if !c.Secure {
+			t.Fatal("Expected Secure cookie on Save")
+		}
+
+		// Now Destroy
+		w2 := httptest.NewRecorder()
+		if err := mgr.Destroy(w2, r, s); err != nil {
+			t.Fatalf("Destroy failed: %v", err)
+		}
+
+		cookies := w2.Result().Cookies()
+		if len(cookies) == 0 {
+			t.Fatal("No cookie set on Destroy")
+		}
+		c2 := cookies[0]
+		if !c2.Secure {
+			t.Error("Secure should be true on deletion cookie")
+		}
+	})
 }
 
 // MockStore to avoid needing DB/Memcached for this test

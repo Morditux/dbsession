@@ -158,12 +158,18 @@ func (m *Manager) Destroy(w http.ResponseWriter, r *http.Request, s *Session) er
 		return err
 	}
 
+	secure := r.TLS != nil
+	if m.secure != nil {
+		secure = *m.secure
+	}
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     m.cookie,
 		Value:    "",
 		Path:     "/",
 		MaxAge:   -1,
 		HttpOnly: m.httpOnly,
+		Secure:   secure,
 		SameSite: m.sameSite,
 	})
 
