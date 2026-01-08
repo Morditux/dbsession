@@ -151,8 +151,13 @@ func (s *SQLiteStore) Get(ctx context.Context, id string) (*Session, error) {
 	}
 
 	var values map[string]any
+
+	reader := readerPool.Get().(*bytes.Reader)
+	reader.Reset(data)
+	defer readerPool.Put(reader)
+
 	// data is valid only until next Scan/Close. gob.NewDecoder reads from it immediately.
-	if err := gob.NewDecoder(bytes.NewReader(data)).Decode(&values); err != nil {
+	if err := gob.NewDecoder(reader).Decode(&values); err != nil {
 		return nil, fmt.Errorf("failed to decode session data: %w", err)
 	}
 
