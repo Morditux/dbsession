@@ -48,7 +48,12 @@ func (s *MemcachedStore) Get(ctx context.Context, id string) (*Session, error) {
 	}
 
 	var env sessionEnvelope
-	if err := gob.NewDecoder(bytes.NewReader(item.Value)).Decode(&env); err != nil {
+
+	reader := readerPool.Get().(*bytes.Reader)
+	reader.Reset(item.Value)
+	defer readerPool.Put(reader)
+
+	if err := gob.NewDecoder(reader).Decode(&env); err != nil {
 		return nil, fmt.Errorf("failed to decode session data: %w", err)
 	}
 
