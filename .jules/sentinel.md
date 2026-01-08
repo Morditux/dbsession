@@ -1,0 +1,4 @@
+## 2024-05-23 - Session ID Input Validation
+**Vulnerability:** The `Manager.Get` method previously passed the raw session ID from the cookie directly to the backend store. While the SQLite store uses parameterized queries (preventing SQL injection), other stores or future implementations might be vulnerable to injection or DoS attacks if invalid inputs (e.g., extremely long strings or control characters) are processed.
+**Learning:** Defense in depth is crucial. Even if the backend is secure, validating input at the boundary prevents unnecessary processing and potential exploit vectors.
+**Prevention:** Added strict validation in `Manager.Get` to ensure the session ID matches the expected format (32 lowercase hex characters) before querying the store. Invalid IDs are treated as missing sessions (returning a new session).

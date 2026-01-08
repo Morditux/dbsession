@@ -91,6 +91,12 @@ func (m *Manager) Get(r *http.Request) (*Session, error) {
 		return m.New(), nil
 	}
 
+	// Input validation: Ensure the session ID matches our expected format (32 hex characters).
+	// This prevents invalid or malicious keys from reaching the backend store.
+	if !isValidID(cookie.Value) {
+		return m.New(), nil
+	}
+
 	session, err := m.store.Get(r.Context(), cookie.Value)
 	if err != nil {
 		return nil, err
@@ -191,4 +197,18 @@ func generateID() string {
 		panic(err) // Should never happen
 	}
 	return hex.EncodeToString(b)
+}
+
+func isValidID(id string) bool {
+	if len(id) != 32 {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		// Check if c is 0-9 or a-f
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
