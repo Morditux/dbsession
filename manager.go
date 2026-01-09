@@ -160,10 +160,8 @@ func (m *Manager) Regenerate(w http.ResponseWriter, r *http.Request, s *Session)
 }
 
 func (m *Manager) Destroy(w http.ResponseWriter, r *http.Request, s *Session) error {
-	if err := m.store.Delete(r.Context(), s.ID); err != nil {
-		return err
-	}
-
+	// Always clear the cookie, even if store deletion fails.
+	// This ensures the client side is logged out ("fail safe" for the user).
 	secure := r.TLS != nil
 	if m.secure != nil {
 		secure = *m.secure
@@ -178,6 +176,10 @@ func (m *Manager) Destroy(w http.ResponseWriter, r *http.Request, s *Session) er
 		Secure:   secure,
 		SameSite: m.sameSite,
 	})
+
+	if err := m.store.Delete(r.Context(), s.ID); err != nil {
+		return err
+	}
 
 	return nil
 }
