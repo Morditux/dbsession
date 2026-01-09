@@ -152,13 +152,17 @@ func (s *SQLiteStore) Get(ctx context.Context, id string) (*Session, error) {
 
 	var values map[string]any
 
-	reader := readerPool.Get().(*bytes.Reader)
-	reader.Reset(data)
-	defer readerPool.Put(reader)
+	// Optimize for empty/new sessions: skip Gob decoding if data is empty/NULL.
+	// sql.RawBytes is nil if the column is NULL.
+	if len(data) > 0 {
+		reader := readerPool.Get().(*bytes.Reader)
+		reader.Reset(data)
+		defer readerPool.Put(reader)
 
-	// data is valid only until next Scan/Close. gob.NewDecoder reads from it immediately.
-	if err := gob.NewDecoder(reader).Decode(&values); err != nil {
-		return nil, fmt.Errorf("failed to decode session data: %w", err)
+		// data is valid only until next Scan/Close. gob.NewDecoder reads from it immediately.
+		if err := gob.NewDecoder(reader).Decode(&values); err != nil {
+			return nil, fmt.Errorf("failed to decode session data: %w", err)
+		}
 	}
 
 	if values == nil {
@@ -174,15 +178,22 @@ func (s *SQLiteStore) Get(ctx context.Context, id string) (*Session, error) {
 }
 
 func (s *SQLiteStore) Save(ctx context.Context, session *Session) error {
-	buf := bufferPool.Get().(*bytes.Buffer)
-	buf.Reset()
-	defer bufferPool.Put(buf)
+	var blob []byte
 
-	if err := gob.NewEncoder(buf).Encode(session.Values); err != nil {
-		return fmt.Errorf("failed to encode session data: %w", err)
+	// Optimize for empty sessions: store NULL instead of Gob encoded empty map.
+	// This saves allocations and CPU cycles for sessions that are just created but not populated.
+	if len(session.Values) > 0 {
+		buf := bufferPool.Get().(*bytes.Buffer)
+		buf.Reset()
+		defer bufferPool.Put(buf)
+
+		if err := gob.NewEncoder(buf).Encode(session.Values); err != nil {
+			return fmt.Errorf("failed to encode session data: %w", err)
+		}
+		blob = buf.Bytes()
 	}
 
-	_, err := s.saveStmt.ExecContext(ctx, session.ID, buf.Bytes(), session.CreatedAt, session.ExpiresAt)
+	_, err := s.saveStmt.ExecContext(ctx, session.ID, blob, session.CreatedAt, session.ExpiresAt)
 
 	if err != nil {
 		return fmt.Errorf("failed to save session: %w", err)
