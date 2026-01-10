@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -107,6 +108,30 @@ func TestSecurityConfig(t *testing.T) {
 		c2 := cookies[0]
 		if !c2.Secure {
 			t.Error("Secure should be true on deletion cookie")
+		}
+	})
+
+	t.Run("Max Session Size Limit", func(t *testing.T) {
+		limit := 10 // Very small limit (bytes)
+		mgr := NewManager(Config{
+			Store:           store,
+			MaxSessionBytes: limit,
+		})
+		defer mgr.Close()
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest("GET", "/", nil)
+		s := mgr.New()
+
+		// Add data that exceeds the limit
+		// "key" + "val" + map overhead > 10 bytes
+		s.Set("key", strings.Repeat("a", 20))
+
+		err := mgr.Save(w, r, s)
+		if err == nil {
+			t.Error("Expected error for large session data, got nil")
+		} else if err != ErrSessionTooLarge {
+			t.Errorf("Expected ErrSessionTooLarge, got: %v", err)
 		}
 	})
 }
