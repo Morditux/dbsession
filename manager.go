@@ -235,14 +235,25 @@ func generateID() string {
 	return hex.EncodeToString(b)
 }
 
+// validIDChars is a lookup table for valid hex characters (0-9, a-f).
+var validIDChars = [256]bool{}
+
+func init() {
+	for i := 0; i < len(validIDChars); i++ {
+		c := byte(i)
+		if (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') {
+			validIDChars[i] = true
+		}
+	}
+}
+
 func isValidID(id string) bool {
 	if len(id) != 32 {
 		return false
 	}
 	for i := 0; i < len(id); i++ {
-		c := id[i]
-		// Check if c is 0-9 or a-f
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		// Lookup table is faster than multiple comparisons
+		if !validIDChars[id[i]] {
 			return false
 		}
 	}
