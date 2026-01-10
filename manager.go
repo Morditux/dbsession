@@ -1,22 +1,38 @@
 package dbsession
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/gob"
 	"encoding/hex"
+	"errors"
 	"net/http"
+	"sync"
 	"time"
 )
 
+var (
+	// ErrSessionTooLarge is returned when the session data exceeds the configured MaxSessionBytes.
+	ErrSessionTooLarge = errors.New("session data too large")
+)
+
+var encodeBufferPool = sync.Pool{
+	New: func() any {
+		return new(bytes.Buffer)
+	},
+}
+
 type Manager struct {
-	store    Store
-	ttl      time.Duration
-	cookie   string
-	cleanup  time.Duration
-	stopChan chan struct{}
-	httpOnly bool
-	secure   *bool
-	sameSite http.SameSite
+	store           Store
+	ttl             time.Duration
+	cookie          string
+	cleanup         time.Duration
+	stopChan        chan struct{}
+	httpOnly        bool
+	secure          *bool
+	sameSite        http.SameSite
+	maxSessionBytes int
 }
 
 type Config struct {
@@ -27,6 +43,7 @@ type Config struct {
 	HttpOnly        *bool
 	Secure          *bool
 	SameSite        http.SameSite
+	MaxSessionBytes int // Maximum size in bytes of the serialized session data. 0 means unlimited.
 }
 
 func NewManager(cfg Config) *Manager {
@@ -41,14 +58,15 @@ func NewManager(cfg Config) *Manager {
 	}
 
 	m := &Manager{
-		store:    cfg.Store,
-		ttl:      cfg.TTL,
-		cookie:   cfg.CookieName,
-		cleanup:  cfg.CleanupInterval,
-		stopChan: make(chan struct{}),
-		httpOnly: true, // Default
-		secure:   cfg.Secure,
-		sameSite: http.SameSiteLaxMode, // Default
+		store:           cfg.Store,
+		ttl:             cfg.TTL,
+		cookie:          cfg.CookieName,
+		cleanup:         cfg.CleanupInterval,
+		stopChan:        make(chan struct{}),
+		httpOnly:        true, // Default
+		secure:          cfg.Secure,
+		sameSite:        http.SameSiteLaxMode, // Default
+		maxSessionBytes: cfg.MaxSessionBytes,
 	}
 
 	if cfg.HttpOnly != nil {
@@ -111,6 +129,22 @@ func (m *Manager) Get(r *http.Request) (*Session, error) {
 
 func (m *Manager) Save(w http.ResponseWriter, r *http.Request, s *Session) error {
 	s.ExpiresAt = time.Now().Add(m.ttl)
+
+	// Check session size if limit is configured
+	if m.maxSessionBytes > 0 {
+		buf := encodeBufferPool.Get().(*bytes.Buffer)
+		buf.Reset()
+		defer encodeBufferPool.Put(buf)
+
+		if err := gob.NewEncoder(buf).Encode(s.Values); err != nil {
+			return err
+		}
+
+		if buf.Len() > m.maxSessionBytes {
+			return ErrSessionTooLarge
+		}
+	}
+
 	if err := m.store.Save(r.Context(), s); err != nil {
 		return err
 	}
