@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
-	"sync"
 	"time"
 )
 
@@ -16,12 +15,6 @@ var (
 	// ErrSessionTooLarge is returned when the session data exceeds the configured MaxSessionBytes.
 	ErrSessionTooLarge = errors.New("session data too large")
 )
-
-var encodeBufferPool = sync.Pool{
-	New: func() any {
-		return new(bytes.Buffer)
-	},
-}
 
 type Manager struct {
 	store           Store
@@ -132,9 +125,9 @@ func (m *Manager) Save(w http.ResponseWriter, r *http.Request, s *Session) error
 
 	// Check session size if limit is configured
 	if m.maxSessionBytes > 0 {
-		buf := encodeBufferPool.Get().(*bytes.Buffer)
+		buf := bufferPool.Get().(*bytes.Buffer)
 		buf.Reset()
-		defer encodeBufferPool.Put(buf)
+		defer bufferPool.Put(buf)
 
 		if err := gob.NewEncoder(buf).Encode(s.Values); err != nil {
 			return err
