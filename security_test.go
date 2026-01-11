@@ -144,3 +144,28 @@ func (m *MockStore) Save(ctx context.Context, s *Session) error           { retu
 func (m *MockStore) Delete(ctx context.Context, id string) error          { return nil }
 func (m *MockStore) Cleanup(ctx context.Context) error                    { return nil }
 func (m *MockStore) Close() error                                         { return nil }
+
+type MockStoreFailDelete struct {
+	MockStore
+}
+
+func (m *MockStoreFailDelete) Delete(ctx context.Context, id string) error {
+	return context.DeadlineExceeded // Simulate a failure
+}
+
+func TestRegenerate_FailSecure(t *testing.T) {
+	store := &MockStoreFailDelete{}
+	mgr := NewManager(Config{Store: store})
+	defer mgr.Close()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	s := mgr.New()
+	s.ID = "old-id"
+
+	// Regenerate should fail if Delete fails
+	err := mgr.Regenerate(w, r, s)
+	if err == nil {
+		t.Error("Expected error when backend Delete fails, got nil (Fail Open)")
+	}
+}

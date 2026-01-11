@@ -174,13 +174,10 @@ func (m *Manager) Regenerate(w http.ResponseWriter, r *http.Request, s *Session)
 	}
 
 	if err := m.store.Delete(r.Context(), oldID); err != nil {
-		// We log the error but don't fail the request as the new session is valid.
-		// In a real logger we would log this. For now we just return it.
-		// It's better to return nil here to not interrupt the user flow,
-		// but returning error allows the caller to decide.
-		// Given the interface, let's return it wrapped.
-		// However, the user has a valid new session.
-		return nil
+		// Security: If we fail to delete the old session, we must return an error.
+		// Failing to do so leaves the old session ID valid, which could be used
+		// in a session fixation attack. We must "fail closed" here.
+		return err
 	}
 
 	return nil
