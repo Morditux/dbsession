@@ -5,17 +5,10 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
 )
-
-var mcBufferPool = sync.Pool{
-	New: func() any {
-		return new(bytes.Buffer)
-	},
-}
 
 // MemcachedStore implements the Store interface using Memcached.
 type MemcachedStore struct {
@@ -71,9 +64,9 @@ func (s *MemcachedStore) Get(ctx context.Context, id string) (*Session, error) {
 
 // Save stores a session in Memcached.
 func (s *MemcachedStore) Save(ctx context.Context, session *Session) error {
-	buf := mcBufferPool.Get().(*bytes.Buffer)
+	buf := bufferPool.Get().(*bytes.Buffer)
 	buf.Reset()
-	defer mcBufferPool.Put(buf)
+	defer bufferPool.Put(buf)
 
 	env := sessionEnvelope{
 		Values:    session.Values,

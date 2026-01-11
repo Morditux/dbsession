@@ -6,17 +6,10 @@ import (
 	"database/sql"
 	"encoding/gob"
 	"fmt"
-	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
-
-var bufferPool = sync.Pool{
-	New: func() any {
-		return new(bytes.Buffer)
-	},
-}
 
 type SQLiteStore struct {
 	db          *sql.DB

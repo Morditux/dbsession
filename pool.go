@@ -10,3 +10,9 @@ var readerPool = sync.Pool{
 		return bytes.NewReader(nil)
 	},
 }
+
+var bufferPool = sync.Pool{
+	New: func() any {
+		return new(bytes.Buffer)
+	},
+}
