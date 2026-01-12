@@ -39,6 +39,9 @@ func TestSecurityConfig(t *testing.T) {
 		if c.Secure {
 			t.Error("Secure should be false for non-TLS request by default")
 		}
+		if c.Path != "/" {
+			t.Errorf("Path should be / by default, got %s", c.Path)
+		}
 	})
 
 	t.Run("Custom Security Settings", func(t *testing.T) {
@@ -71,6 +74,46 @@ func TestSecurityConfig(t *testing.T) {
 		}
 		if !c.Secure {
 			t.Error("Secure should be forced to true")
+		}
+	})
+
+	t.Run("Cookie Scope", func(t *testing.T) {
+		mgr := NewManager(Config{
+			Store:        store,
+			CookiePath:   "/app",
+			CookieDomain: "example.com",
+		})
+		defer mgr.Close()
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest("GET", "/app/dashboard", nil)
+		s := mgr.New()
+
+		if err := mgr.Save(w, r, s); err != nil {
+			t.Fatalf("Save failed: %v", err)
+		}
+
+		cookies := w.Result().Cookies()
+		c := cookies[0]
+
+		if c.Path != "/app" {
+			t.Errorf("Path should be /app, got %s", c.Path)
+		}
+		if c.Domain != "example.com" {
+			t.Errorf("Domain should be example.com, got %s", c.Domain)
+		}
+
+		// Test Destroy uses correct scope
+		w2 := httptest.NewRecorder()
+		if err := mgr.Destroy(w2, r, s); err != nil {
+			t.Fatalf("Destroy failed: %v", err)
+		}
+		c2 := w2.Result().Cookies()[0]
+		if c2.Path != "/app" {
+			t.Errorf("Destroy Path should be /app, got %s", c2.Path)
+		}
+		if c2.Domain != "example.com" {
+			t.Errorf("Destroy Domain should be example.com, got %s", c2.Domain)
 		}
 	})
 

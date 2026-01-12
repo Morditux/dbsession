@@ -20,6 +20,8 @@ type Manager struct {
 	store           Store
 	ttl             time.Duration
 	cookie          string
+	cookiePath      string
+	cookieDomain    string
 	cleanup         time.Duration
 	stopChan        chan struct{}
 	httpOnly        bool
@@ -32,6 +34,8 @@ type Config struct {
 	Store           Store
 	TTL             time.Duration
 	CookieName      string
+	CookiePath      string
+	CookieDomain    string
 	CleanupInterval time.Duration
 	HttpOnly        *bool
 	Secure          *bool
@@ -42,6 +46,9 @@ type Config struct {
 func NewManager(cfg Config) *Manager {
 	if cfg.CookieName == "" {
 		cfg.CookieName = "session_id"
+	}
+	if cfg.CookiePath == "" {
+		cfg.CookiePath = "/"
 	}
 	if cfg.TTL == 0 {
 		cfg.TTL = 24 * time.Hour
@@ -54,6 +61,8 @@ func NewManager(cfg Config) *Manager {
 		store:           cfg.Store,
 		ttl:             cfg.TTL,
 		cookie:          cfg.CookieName,
+		cookiePath:      cfg.CookiePath,
+		cookieDomain:    cfg.CookieDomain,
 		cleanup:         cfg.CleanupInterval,
 		stopChan:        make(chan struct{}),
 		httpOnly:        true, // Default
@@ -150,7 +159,8 @@ func (m *Manager) Save(w http.ResponseWriter, r *http.Request, s *Session) error
 	http.SetCookie(w, &http.Cookie{
 		Name:     m.cookie,
 		Value:    s.ID,
-		Path:     "/",
+		Path:     m.cookiePath,
+		Domain:   m.cookieDomain,
 		Expires:  s.ExpiresAt,
 		HttpOnly: m.httpOnly,
 		Secure:   secure,
@@ -194,7 +204,8 @@ func (m *Manager) Destroy(w http.ResponseWriter, r *http.Request, s *Session) er
 	http.SetCookie(w, &http.Cookie{
 		Name:     m.cookie,
 		Value:    "",
-		Path:     "/",
+		Path:     m.cookiePath,
+		Domain:   m.cookieDomain,
 		MaxAge:   -1,
 		HttpOnly: m.httpOnly,
 		Secure:   secure,
