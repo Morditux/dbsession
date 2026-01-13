@@ -12,3 +12,8 @@
 **Vulnerability:** The session manager previously had no limit on the size of data that could be stored in a session. This allowed a potential Denial of Service (DoS) attack where an attacker (or a bug) could stuff large amounts of data into a session, causing excessive memory usage during serialization or exhausting backend storage.
 **Learning:** Always enforce upper bounds on user-controlled input sizes, even for internal structures like session data. Unbounded growth is a classic resource exhaustion vector.
 **Prevention:** Introduced `MaxSessionBytes` configuration option (defaulting to unlimited for compatibility). The `Manager.Save` method now preemptively serializes session data to a temporary buffer to verify its size before attempting to save it to the store. If the limit is exceeded, it returns `ErrSessionTooLarge`.
+
+## 2024-05-24 - Session ID Write-Side Validation
+**Vulnerability:** While `Manager.Get` validated session IDs, `Manager.Save` did not. This allowed invalid session IDs to be persisted if manually set by the application, potentially leading to corrupt state or cookies that cannot be retrieved (since `Get` rejects them).
+**Learning:** Validation must be symmetric. If you reject data on read, you should also reject it on write to prevent "write-only" data states and maintain system integrity.
+**Prevention:** Added `isValidID` check to `Manager.Save` to enforce the same 32-hex-character constraint as `Manager.Get`.
