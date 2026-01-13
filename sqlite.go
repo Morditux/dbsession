@@ -176,14 +176,18 @@ func (s *SQLiteStore) Save(ctx context.Context, session *Session) error {
 	// Optimize for empty sessions: store NULL instead of Gob encoded empty map.
 	// This saves allocations and CPU cycles for sessions that are just created but not populated.
 	if len(session.Values) > 0 {
-		buf := bufferPool.Get().(*bytes.Buffer)
-		buf.Reset()
-		defer bufferPool.Put(buf)
+		if session.encoded != nil {
+			blob = session.encoded
+		} else {
+			buf := bufferPool.Get().(*bytes.Buffer)
+			buf.Reset()
+			defer bufferPool.Put(buf)
 
-		if err := gob.NewEncoder(buf).Encode(session.Values); err != nil {
-			return fmt.Errorf("failed to encode session data: %w", err)
+			if err := gob.NewEncoder(buf).Encode(session.Values); err != nil {
+				return fmt.Errorf("failed to encode session data: %w", err)
+			}
+			blob = buf.Bytes()
 		}
-		blob = buf.Bytes()
 	}
 
 	_, err := s.saveStmt.ExecContext(ctx, session.ID, blob, session.CreatedAt, session.ExpiresAt)
