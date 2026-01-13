@@ -12,6 +12,7 @@ type Session struct {
 	Values    map[string]any
 	CreatedAt time.Time
 	ExpiresAt time.Time
+	encoded   []byte // Cache for encoded values
 	mu        sync.RWMutex
 }
 
@@ -31,6 +32,7 @@ func (s *Session) Set(key string, val any) {
 		s.Values = make(map[string]any)
 	}
 	s.Values[key] = val
+	s.encoded = nil
 }
 
 // Delete removes a value from the session in a thread-safe manner.
@@ -38,6 +40,7 @@ func (s *Session) Delete(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.Values, key)
+	s.encoded = nil
 }
 
 // Store defines the interface for session persistence.

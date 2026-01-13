@@ -152,9 +152,16 @@ func (m *Manager) Save(w http.ResponseWriter, r *http.Request, s *Session) error
 		if buf.Len() > m.maxSessionBytes {
 			return ErrSessionTooLarge
 		}
+
+		// Optimization: Store the encoded data in the session so the store doesn't have to re-encode it.
+		// Note: We use the buffer's bytes directly. The Store must consume it before we return from Save.
+		// Since store.Save is synchronous, this is safe, provided we clear s.encoded before returning.
+		s.encoded = buf.Bytes()
 	}
 
-	if err := m.store.Save(r.Context(), s); err != nil {
+	err := m.store.Save(r.Context(), s)
+	s.encoded = nil // Clear the cache to prevent use-after-free if buffer is reused
+	if err != nil {
 		return err
 	}
 
