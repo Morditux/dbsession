@@ -212,3 +212,35 @@ func TestRegenerate_FailSecure(t *testing.T) {
 		t.Error("Expected error when backend Delete fails, got nil (Fail Open)")
 	}
 }
+
+func TestSave_ValidatesSessionID(t *testing.T) {
+	// Mock store
+	store := &MockStore{}
+	mgr := NewManager(Config{Store: store})
+	defer mgr.Close()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+
+	t.Run("Invalid ID rejected", func(t *testing.T) {
+		s := mgr.New()
+		s.ID = "bad-id" // Not 32 hex chars
+
+		err := mgr.Save(w, r, s)
+		if err == nil {
+			t.Fatal("Expected error when saving session with invalid ID, got nil")
+		}
+		if err != ErrInvalidSessionID {
+			t.Errorf("Expected ErrInvalidSessionID, got %v", err)
+		}
+	})
+
+	t.Run("Valid ID accepted", func(t *testing.T) {
+		s := mgr.New() // Generates valid ID
+
+		err := mgr.Save(w, r, s)
+		if err != nil {
+			t.Fatalf("Expected no error for valid ID, got %v", err)
+		}
+	})
+}

@@ -14,6 +14,9 @@ import (
 var (
 	// ErrSessionTooLarge is returned when the session data exceeds the configured MaxSessionBytes.
 	ErrSessionTooLarge = errors.New("session data too large")
+
+	// ErrInvalidSessionID is returned when the session ID format is invalid.
+	ErrInvalidSessionID = errors.New("invalid session id")
 )
 
 type Manager struct {
@@ -130,6 +133,10 @@ func (m *Manager) Get(r *http.Request) (*Session, error) {
 }
 
 func (m *Manager) Save(w http.ResponseWriter, r *http.Request, s *Session) error {
+	if !isValidID(s.ID) {
+		return ErrInvalidSessionID
+	}
+
 	s.ExpiresAt = time.Now().Add(m.ttl)
 
 	// Check session size if limit is configured
