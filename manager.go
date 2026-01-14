@@ -82,6 +82,14 @@ func NewManager(cfg Config) *Manager {
 		m.sameSite = cfg.SameSite
 	}
 
+	// Security: SameSite=None requires Secure=true.
+	// Browsers reject SameSite=None cookies if the Secure attribute is missing.
+	// We enforce this even if the user didn't explicitly set Secure=true.
+	if m.sameSite == http.SameSiteNoneMode {
+		secure := true
+		m.secure = &secure
+	}
+
 	go m.cleanupWorker()
 
 	return m

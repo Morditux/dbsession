@@ -17,3 +17,8 @@
 **Vulnerability:** While `Manager.Get` validated session IDs, `Manager.Save` did not. This allowed invalid session IDs to be persisted if manually set by the application, potentially leading to corrupt state or cookies that cannot be retrieved (since `Get` rejects them).
 **Learning:** Validation must be symmetric. If you reject data on read, you should also reject it on write to prevent "write-only" data states and maintain system integrity.
 **Prevention:** Added `isValidID` check to `Manager.Save` to enforce the same 32-hex-character constraint as `Manager.Get`.
+
+## 2025-04-03 - Enforce Secure Attribute for SameSite=None
+**Vulnerability:** The library allowed configuring `SameSite=None` without setting the `Secure` attribute. Modern browsers (like Chrome) reject cookies with `SameSite=None` unless they are also marked `Secure`. This could lead to a silent failure where sessions are not persisted, appearing as a functionality bug or availability issue.
+**Learning:** When a security standard enforces a dependency between configuration options (SameSite=None => Secure=true), the library should enforce this dependency programmatically rather than relying on the user to configure it correctly. This prevents "foot-gun" configurations.
+**Prevention:** Modified `NewManager` to automatically force the `Secure` flag to `true` whenever `SameSite` is set to `http.SameSiteNoneMode`.
