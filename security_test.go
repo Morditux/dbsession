@@ -154,6 +154,35 @@ func TestSecurityConfig(t *testing.T) {
 		}
 	})
 
+	t.Run("SameSite=None Enforces Secure", func(t *testing.T) {
+		// Case: SameSite=None, Secure=nil (default, auto-detect)
+		// Since request is HTTP, auto-detect would usually result in Secure=false.
+		// But because SameSite=None, we MUST enforce Secure=true.
+		mgr := NewManager(Config{
+			Store:    store,
+			SameSite: http.SameSiteNoneMode,
+		})
+		defer mgr.Close()
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest("GET", "/", nil) // Non-TLS
+		s := mgr.New()
+
+		if err := mgr.Save(w, r, s); err != nil {
+			t.Fatalf("Save failed: %v", err)
+		}
+
+		cookies := w.Result().Cookies()
+		c := cookies[0]
+
+		if c.SameSite != http.SameSiteNoneMode {
+			t.Errorf("Expected SameSite=None, got %v", c.SameSite)
+		}
+		if !c.Secure {
+			t.Error("Expected Secure=true when SameSite=None, but got false")
+		}
+	})
+
 	t.Run("Max Session Size Limit", func(t *testing.T) {
 		limit := 10 // Very small limit (bytes)
 		mgr := NewManager(Config{
