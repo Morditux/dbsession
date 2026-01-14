@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/gob"
 	"fmt"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -13,6 +14,7 @@ import (
 
 type SQLiteStore struct {
 	db          *sql.DB
+	mu          sync.Mutex // Serializes writes to avoid SQLITE_BUSY
 	saveStmt    *sql.Stmt
 	getStmt     *sql.Stmt
 	deleteStmt  *sql.Stmt
@@ -30,8 +32,8 @@ type SQLiteConfig struct {
 func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 	return NewSQLiteStoreWithConfig(SQLiteConfig{
 		DSN:          dsn,
-		MaxOpenConns: 1, // SQLite works best with a single connection for writes
-		MaxIdleConns: 1,
+		MaxOpenConns: 16, // Allow concurrent readers (writers are serialized by mutex)
+		MaxIdleConns: 16,
 	})
 }
 
@@ -190,6 +192,8 @@ func (s *SQLiteStore) Save(ctx context.Context, session *Session) error {
 		}
 	}
 
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	_, err := s.saveStmt.ExecContext(ctx, session.ID, blob, session.CreatedAt, session.ExpiresAt)
 
 	if err != nil {
@@ -199,6 +203,8 @@ func (s *SQLiteStore) Save(ctx context.Context, session *Session) error {
 }
 
 func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	_, err := s.deleteStmt.ExecContext(ctx, id)
 	if err != nil {
 		return fmt.Errorf("failed to delete session: %w", err)
@@ -207,6 +213,8 @@ func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 }
 
 func (s *SQLiteStore) Cleanup(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	_, err := s.cleanupStmt.ExecContext(ctx, time.Now())
 	if err != nil {
 		return fmt.Errorf("failed to cleanup expired sessions: %w", err)

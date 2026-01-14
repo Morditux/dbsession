@@ -9,3 +9,7 @@
 ## 2024-05-24 - Avoid Double Encoding in Layered Architecture
 **Learning:** When a manager layer encodes data for validation (e.g., size check) and a store layer encodes it for persistence, we pay the encoding cost twice.
 **Action:** Cache the encoded result in the data object (temporarily) if the manager has already done the work, allowing the store to reuse it. Ensure proper invalidation if the object is mutable.
+
+## 2026-01-14 - SQLite Concurrent Reads
+**Learning:** `modernc.org/sqlite` in WAL mode supports concurrent readers, but `database/sql` requires `MaxOpenConns > 1` to utilize them. However, multiple writers (via connection pool) can cause `SQLITE_BUSY` even with `busy_timeout`.
+**Action:** Use a hybrid approach: Increase `MaxOpenConns` (e.g., 16) to allow parallel reads, but enforce a single-writer policy at the application level using a `sync.Mutex` around write operations (`Save`, `Delete`, `Cleanup`).
