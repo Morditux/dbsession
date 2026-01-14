@@ -420,3 +420,35 @@ func BenchmarkMemcachedStore_SaveParallel(b *testing.B) {
 		}
 	})
 }
+
+func BenchmarkSQLiteStore_GetParallel(b *testing.B) {
+	dbPath := "bench_sqlite_get_parallel.db"
+	defer os.Remove(dbPath)
+
+	store, err := NewSQLiteStore(dbPath)
+	if err != nil {
+		b.Fatalf("failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	session := &Session{
+		ID:        "bench-get-session",
+		Values:    map[string]any{"key": "value"},
+		CreatedAt: time.Now(),
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+	if err := store.Save(ctx, session); err != nil {
+		b.Fatalf("failed to save: %v", err)
+	}
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			_, err := store.Get(ctx, session.ID)
+			if err != nil {
+				b.Errorf("failed to get: %v", err)
+			}
+		}
+	})
+}
