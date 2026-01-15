@@ -238,6 +238,10 @@ func (m *Manager) Destroy(w http.ResponseWriter, r *http.Request, s *Session) er
 		return err
 	}
 
+	// Security: Clear the session values from memory to reduce the window
+	// of exposure for sensitive data.
+	s.Clear()
+
 	return nil
 }
 

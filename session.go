@@ -43,6 +43,15 @@ func (s *Session) Delete(key string) {
 	s.encoded = nil
 }
 
+// Clear removes all values from the session and clears the encoded cache.
+// This is used to wipe sensitive data from memory when destroying a session.
+func (s *Session) Clear() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Values = nil
+	s.encoded = nil
+}
+
 // Store defines the interface for session persistence.
 type Store interface {
 	// Get retrieves a session by its ID.

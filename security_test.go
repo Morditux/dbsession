@@ -273,3 +273,32 @@ func TestSave_ValidatesSessionID(t *testing.T) {
 		}
 	})
 }
+
+func TestDestroy_ClearsMemory(t *testing.T) {
+	store := &MockStore{}
+	mgr := NewManager(Config{Store: store})
+	defer mgr.Close()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	s := mgr.New()
+
+	s.Set("secret", "sensitive-data")
+
+	if err := mgr.Destroy(w, r, s); err != nil {
+		t.Fatalf("Destroy failed: %v", err)
+	}
+
+	// Verify memory is cleared
+	val, ok := s.Get("secret")
+	if ok || val != nil {
+		t.Error("Expected session values to be cleared after Destroy, but 'secret' is still present")
+	}
+
+	// Verify internal map is nil or empty
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.Values) > 0 {
+		t.Errorf("Expected Values map to be empty/nil, got len %d", len(s.Values))
+	}
+}
