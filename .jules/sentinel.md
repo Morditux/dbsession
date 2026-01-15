@@ -22,3 +22,8 @@
 **Vulnerability:** The library allowed configuring `SameSite=None` without setting the `Secure` attribute. Modern browsers (like Chrome) reject cookies with `SameSite=None` unless they are also marked `Secure`. This could lead to a silent failure where sessions are not persisted, appearing as a functionality bug or availability issue.
 **Learning:** When a security standard enforces a dependency between configuration options (SameSite=None => Secure=true), the library should enforce this dependency programmatically rather than relying on the user to configure it correctly. This prevents "foot-gun" configurations.
 **Prevention:** Modified `NewManager` to automatically force the `Secure` flag to `true` whenever `SameSite` is set to `http.SameSiteNoneMode`.
+
+## 2025-05-18 - Clear Session Data from Memory on Destroy
+**Vulnerability:** Sensitive session data (PII, tokens) stored in the `Session.Values` map and internal buffers remained in memory even after `Manager.Destroy` was called. If the application retained a reference to the `Session` object, this data could persist until garbage collection, increasing the risk of memory scraping or accidental leakage.
+**Learning:** Defense in depth includes data lifecycle management. Sensitive data should be purged from memory as soon as it is no longer needed, rather than relying solely on the garbage collector.
+**Prevention:** Implemented `Session.Clear()` to nil out the `Values` map and internal buffers, and updated `Manager.Destroy` to invoke this method immediately after removing the session from the backend store.
