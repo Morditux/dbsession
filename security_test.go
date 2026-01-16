@@ -42,6 +42,9 @@ func TestSecurityConfig(t *testing.T) {
 		if c.Path != "/" {
 			t.Errorf("Path should be / by default, got %s", c.Path)
 		}
+		if c.MaxAge <= 0 {
+			t.Errorf("MaxAge should be set to positive integer (TTL), got %d", c.MaxAge)
+		}
 	})
 
 	t.Run("Custom Security Settings", func(t *testing.T) {

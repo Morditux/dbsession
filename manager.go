@@ -184,6 +184,7 @@ func (m *Manager) Save(w http.ResponseWriter, r *http.Request, s *Session) error
 		Path:     m.cookiePath,
 		Domain:   m.cookieDomain,
 		Expires:  s.ExpiresAt,
+		MaxAge:   int(m.ttl.Seconds()),
 		HttpOnly: m.httpOnly,
 		Secure:   secure,
 		SameSite: m.sameSite,
