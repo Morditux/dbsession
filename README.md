@@ -7,6 +7,7 @@ A modular session management library for Go web applications using SQLite for pe
 ## Features
 
 - CGO-free SQLite support via `modernc.org/sqlite`.
+- PostgreSQL support via `github.com/lib/pq`.
 - Memcached support via `github.com/bradfitz/gomemcache/memcache`.
 - Simple API for session management.
 - Configurable TTL and automatic cleanup.
@@ -32,6 +33,26 @@ import (
 
 func main() {
 	store, _ := dbsession.NewSQLiteStore("sessions.db")
+	mgr := dbsession.NewManager(dbsession.Config{
+		Store: store,
+		TTL:   24 * time.Hour,
+	})
+	// Use mgr in your http handlers
+}
+```
+
+### PostgreSQL
+
+```go
+package main
+
+import (
+	"github.com/Morditux/dbsession"
+	"time"
+)
+
+func main() {
+	store, _ := dbsession.NewPostgreSQLStore("postgres://user:password@localhost/dbname?sslmode=disable")
 	mgr := dbsession.NewManager(dbsession.Config{
 		Store: store,
 		TTL:   24 * time.Hour,
