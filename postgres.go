@@ -118,15 +118,27 @@ func NewPostgreSQLStoreWithConfig(cfg PostgreSQLConfig) (*PostgreSQLStore, error
 }
 
 func (s *PostgreSQLStore) Get(ctx context.Context, id string) (*Session, error) {
-	var data []byte
+	// Use sql.RawBytes to avoid allocation if the driver supports it.
+	// data is valid only until rows.Close() is called.
+	var data sql.RawBytes
 	var createdAt, expiresAt time.Time
 
-	err := s.getStmt.QueryRowContext(ctx, id, time.Now()).Scan(&data, &createdAt, &expiresAt)
-	if err == sql.ErrNoRows {
-		return nil, nil // Not found or expired
-	}
+	// Use QueryContext instead of QueryRowContext to support sql.RawBytes.
+	rows, err := s.getStmt.QueryContext(ctx, id, time.Now())
 	if err != nil {
 		return nil, fmt.Errorf("failed to query session: %w", err)
+	}
+	defer rows.Close()
+
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("failed to iterate rows: %w", err)
+		}
+		return nil, nil // Not found or expired
+	}
+
+	if err := rows.Scan(&data, &createdAt, &expiresAt); err != nil {
+		return nil, fmt.Errorf("failed to scan session: %w", err)
 	}
 
 	var values map[string]any
