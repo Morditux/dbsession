@@ -141,6 +141,11 @@ func (m *Manager) Get(r *http.Request) (*Session, error) {
 }
 
 func (m *Manager) Save(w http.ResponseWriter, r *http.Request, s *Session) error {
+	// Acquire lock to prevent race conditions with concurrent Session.Set/Delete calls.
+	// This ensures that s.Values and s.encoded are accessed consistently.
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if !isValidID(s.ID) {
 		return ErrInvalidSessionID
 	}
