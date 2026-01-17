@@ -7,3 +7,8 @@
 **Vulnerability:** Insecure cookies in modern browsers.
 **Learning:** `Manager.NewManager` forcibly enables `Secure` attribute if `SameSite` is `None`, preventing browser rejection. It also defaults `HttpOnly` to true.
 **Prevention:** Do not override these defaults without understanding browser security requirements.
+
+## 2025-05-24 - Thread Safety in Manager.Save
+**Vulnerability:** Race Condition causing Panic/DoS.
+**Learning:** `Manager.Save` accessed `Session.Values` without locking the session mutex, causing data races if the application modified the session (via `Session.Set`) concurrently. This could lead to crashes or data corruption.
+**Prevention:** `Manager.Save` must acquire `Session.mu.Lock()` (write lock) for the entire duration of the save operation, including the call to `Store.Save`, to ensure a consistent snapshot of the session data is persisted.
