@@ -452,3 +452,26 @@ func BenchmarkSQLiteStore_GetParallel(b *testing.B) {
 		}
 	})
 }
+
+func BenchmarkManager_Save_Empty(b *testing.B) {
+	store, err := NewSQLiteStore(":memory:")
+	if err != nil {
+		b.Fatalf("failed to create store: %v", err)
+	}
+	mgr := NewManager(Config{
+		Store:           store,
+		MaxSessionBytes: 4096, // Enable size check to trigger encoding logic
+	})
+	defer mgr.Close()
+
+	s := mgr.New() // Empty values
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := mgr.Save(w, r, s); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
