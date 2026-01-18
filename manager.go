@@ -215,6 +215,29 @@ func (m *Manager) Regenerate(w http.ResponseWriter, r *http.Request, s *Session)
 		// Security: If we fail to delete the old session, we must return an error.
 		// Failing to do so leaves the old session ID valid, which could be used
 		// in a session fixation attack. We must "fail closed" here.
+
+		// Attempt to cleanup the new session we just created
+		_ = m.store.Delete(r.Context(), newID)
+
+		// Force logout by clearing the cookie.
+		// This ensures the client is not left with a valid session (newID)
+		// while the old session (oldID) might still be valid in the store.
+		secure := r.TLS != nil
+		if m.secure != nil {
+			secure = *m.secure
+		}
+
+		http.SetCookie(w, &http.Cookie{
+			Name:     m.cookie,
+			Value:    "",
+			Path:     m.cookiePath,
+			Domain:   m.cookieDomain,
+			MaxAge:   -1,
+			HttpOnly: m.httpOnly,
+			Secure:   secure,
+			SameSite: m.sameSite,
+		})
+
 		return err
 	}
 
