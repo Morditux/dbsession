@@ -153,7 +153,9 @@ func (m *Manager) Save(w http.ResponseWriter, r *http.Request, s *Session) error
 	s.ExpiresAt = time.Now().Add(m.ttl)
 
 	// Check session size if limit is configured
-	if m.maxSessionBytes > 0 {
+	// Optimization: Skip encoding if the session is empty.
+	// This saves allocations and CPU cycles for new/empty sessions.
+	if m.maxSessionBytes > 0 && len(s.Values) > 0 {
 		buf := bufferPool.Get().(*bytes.Buffer)
 		buf.Reset()
 		defer bufferPool.Put(buf)
