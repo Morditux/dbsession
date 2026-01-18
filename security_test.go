@@ -243,6 +243,21 @@ func TestRegenerate_FailSecure(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error when backend Delete fails, got nil (Fail Open)")
 	}
+
+	// Security: Verify that we fail closed by clearing the cookie.
+	// If we leave the cookie set to the NEW ID, the user is effectively logged in
+	// even though the security rotation failed.
+	cookies := w.Result().Cookies()
+	foundClear := false
+	for _, c := range cookies {
+		if c.Name == "session_id" && c.MaxAge < 0 {
+			foundClear = true
+		}
+	}
+
+	if !foundClear {
+		t.Error("Expected session cookie to be cleared (MaxAge < 0) when Regenerate fails, but it remained valid")
+	}
 }
 
 func TestSave_ValidatesSessionID(t *testing.T) {

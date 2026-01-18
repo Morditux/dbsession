@@ -12,3 +12,8 @@
 **Vulnerability:** Race Condition causing Panic/DoS.
 **Learning:** `Manager.Save` accessed `Session.Values` without locking the session mutex, causing data races if the application modified the session (via `Session.Set`) concurrently. This could lead to crashes or data corruption.
 **Prevention:** `Manager.Save` must acquire `Session.mu.Lock()` (write lock) for the entire duration of the save operation, including the call to `Store.Save`, to ensure a consistent snapshot of the session data is persisted.
+
+## 2025-05-24 - Fail-Safe Session Regeneration
+**Vulnerability:** Session fixation risk due to "fail-open" regeneration.
+**Learning:** `Manager.Regenerate` previously returned an error if deleting the old session failed, but left the user logged in with the *new* session ID (via cookie). This exposed the user to session fixation attacks (since the old session ID remained valid in the store).
+**Prevention:** In `Regenerate`, if deletion of the old session fails, we must explicitly invalidate the new session (delete it and clear the cookie) to ensure the system fails closed (no session is better than an insecure session).
