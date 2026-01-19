@@ -17,3 +17,8 @@
 **Vulnerability:** Session fixation risk due to "fail-open" regeneration.
 **Learning:** `Manager.Regenerate` previously returned an error if deleting the old session failed, but left the user logged in with the *new* session ID (via cookie). This exposed the user to session fixation attacks (since the old session ID remained valid in the store).
 **Prevention:** In `Regenerate`, if deletion of the old session fails, we must explicitly invalidate the new session (delete it and clear the cookie) to ensure the system fails closed (no session is better than an insecure session).
+
+## 2025-05-24 - Data Remanence in Buffer Pools
+**Vulnerability:** Sensitive session data persisting in memory across requests.
+**Learning:** `bytes.Buffer.Reset()` does not clear the underlying array, only the internal pointers. When using `sync.Pool` to reuse buffers for sensitive data (like serialized sessions), old data remains in memory and could potentially leak or be exposed if the buffer capacity is accessed improperly or if memory is dumped.
+**Prevention:** Buffers used for sensitive data must be explicitly zeroed out before being returned to the pool. We implemented a `PutBuffer` helper in `pool.go` that wipes the used portion of the buffer before resetting and pooling it.

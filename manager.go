@@ -158,7 +158,7 @@ func (m *Manager) Save(w http.ResponseWriter, r *http.Request, s *Session) error
 	if m.maxSessionBytes > 0 && len(s.Values) > 0 {
 		buf := bufferPool.Get().(*bytes.Buffer)
 		buf.Reset()
-		defer bufferPool.Put(buf)
+		defer PutBuffer(buf)
 
 		if err := gob.NewEncoder(buf).Encode(s.Values); err != nil {
 			return err
