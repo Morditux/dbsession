@@ -16,3 +16,18 @@ var bufferPool = sync.Pool{
 		return new(bytes.Buffer)
 	},
 }
+
+// PutBuffer wipes the buffer's content and returns it to the pool.
+// This is a security enhancement to ensure sensitive session data
+// is not retained in memory longer than necessary.
+func PutBuffer(buf *bytes.Buffer) {
+	// Securely wipe the used portion of the buffer
+	// buf.Bytes() returns the unread portion of the buffer, which
+	// corresponds to the data we just wrote (and presumably read/used).
+	b := buf.Bytes()
+	for i := range b {
+		b[i] = 0
+	}
+	buf.Reset()
+	bufferPool.Put(buf)
+}

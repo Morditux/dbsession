@@ -66,7 +66,7 @@ func (s *MemcachedStore) Get(ctx context.Context, id string) (*Session, error) {
 func (s *MemcachedStore) Save(ctx context.Context, session *Session) error {
 	buf := bufferPool.Get().(*bytes.Buffer)
 	buf.Reset()
-	defer bufferPool.Put(buf)
+	defer PutBuffer(buf)
 
 	env := sessionEnvelope{
 		Values:    session.Values,

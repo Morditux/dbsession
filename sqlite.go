@@ -183,7 +183,7 @@ func (s *SQLiteStore) Save(ctx context.Context, session *Session) error {
 		} else {
 			buf := bufferPool.Get().(*bytes.Buffer)
 			buf.Reset()
-			defer bufferPool.Put(buf)
+			defer PutBuffer(buf)
 
 			if err := gob.NewEncoder(buf).Encode(session.Values); err != nil {
 				return fmt.Errorf("failed to encode session data: %w", err)
