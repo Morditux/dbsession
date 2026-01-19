@@ -17,3 +17,7 @@
 ## 2026-01-20 - Skip Serialization for Empty Sessions
 **Learning:** Even empty maps incur serialization overhead (allocating encoders, buffers). For size limits, empty structures can be safely skipped as they will virtually never exceed reasonable limits.
 **Action:** Check `len(collection) > 0` before serializing for size validation to save allocations on the empty path.
+
+## 2026-01-21 - SQLite Connection Pool Pragmas
+**Learning:** Using `db.Exec("PRAGMA ...")` to set connection-specific settings (like `synchronous` or `busy_timeout`) only affects the single connection that executes the statement. In a pool, subsequent connections revert to defaults, causing inconsistent performance or failures.
+**Action:** Use DSN query parameters (e.g., `_pragma=synchronous=NORMAL`) when using `modernc.org/sqlite` (or `mattn/go-sqlite3` hooks) to ensure settings are applied to every connection in the pool.

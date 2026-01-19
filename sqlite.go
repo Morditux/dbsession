@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/gob"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,7 +39,21 @@ func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 }
 
 func NewSQLiteStoreWithConfig(cfg SQLiteConfig) (*SQLiteStore, error) {
-	db, err := sql.Open("sqlite", cfg.DSN)
+	// Optimize connection settings via DSN pragmas.
+	// This ensures that EVERY connection opened by the pool has these settings applied.
+	// Previously, we used db.Exec("PRAGMA ...") which only applied to the connection
+	// that happened to execute the statement, leaving other connections with default (slow) settings.
+	dsn := cfg.DSN
+	if strings.Contains(dsn, "?") {
+		dsn += "&"
+	} else {
+		dsn += "?"
+	}
+	// synchronous=NORMAL: Reduces fsync overhead significantly while remaining safe for WAL mode.
+	// busy_timeout=5000: Waits up to 5s for locks instead of failing immediately.
+	dsn += "_pragma=synchronous=NORMAL&_pragma=busy_timeout=5000"
+
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
 	}
@@ -54,23 +69,11 @@ func NewSQLiteStoreWithConfig(cfg SQLiteConfig) (*SQLiteStore, error) {
 		db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
 	}
 
-	// Enable WAL mode for better concurrent writes
+	// Enable WAL mode for better concurrent writes.
+	// journal_mode is persistent for the database file, so executing it once is sufficient.
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
-	}
-
-	// Optimize write performance by reducing fsyncs
-	// WAL + synchronous=NORMAL is safe and much faster
-	if _, err := db.Exec("PRAGMA synchronous=NORMAL"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to set synchronous mode: %w", err)
-	}
-
-	// Set busy timeout to wait instead of failing immediately
-	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to set busy_timeout: %w", err)
 	}
 
 	// Create table if not exists
