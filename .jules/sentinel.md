@@ -22,3 +22,8 @@
 **Vulnerability:** Sensitive session data persisting in memory across requests.
 **Learning:** `bytes.Buffer.Reset()` does not clear the underlying array, only the internal pointers. When using `sync.Pool` to reuse buffers for sensitive data (like serialized sessions), old data remains in memory and could potentially leak or be exposed if the buffer capacity is accessed improperly or if memory is dumped.
 **Prevention:** Buffers used for sensitive data must be explicitly zeroed out before being returned to the pool. We implemented a `PutBuffer` helper in `pool.go` that wipes the used portion of the buffer before resetting and pooling it.
+
+## 2025-05-27 - Handling crypto/rand Failures in Go 1.24+
+**Vulnerability:** Go 1.24+ `crypto/rand.Read` treats any error from the underlying reader as a fatal error that crashes the runtime, preventing graceful error handling (DoS risk if RNG fails transiently).
+**Learning:** We cannot simply catch errors from `rand.Read`. To handle RNG errors gracefully (e.g., return 500 instead of crash), we must bypass the wrapper and use `io.ReadFull(rand.Reader, b)` directly.
+**Prevention:** When robust error handling is required for random number generation, use `io.ReadFull(rand.Reader, ...)` and handle the returned error explicitly.
