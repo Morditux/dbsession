@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/gob"
 	"encoding/hex"
+	"io"
 	"errors"
 	"net/http"
 	"time"
@@ -205,7 +206,10 @@ func (m *Manager) Save(w http.ResponseWriter, r *http.Request, s *Session) error
 // and removes the old session from the store.
 func (m *Manager) Regenerate(w http.ResponseWriter, r *http.Request, s *Session) error {
 	oldID := s.ID
-	newID := generateID()
+	newID, err := generateID()
+	if err != nil {
+		return err
+	}
 	s.ID = newID
 
 	if err := m.Save(w, r, s); err != nil {
@@ -277,20 +281,27 @@ func (m *Manager) Destroy(w http.ResponseWriter, r *http.Request, s *Session) er
 }
 
 func (m *Manager) New() *Session {
+	id, err := generateID()
+	if err != nil {
+		panic(err)
+	}
 	return &Session{
-		ID:        generateID(),
+		ID:        id,
 		Values:    make(map[string]any),
 		CreatedAt: time.Now(),
 		ExpiresAt: time.Now().Add(m.ttl),
 	}
 }
 
-func generateID() string {
+func generateID() (string, error) {
 	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		panic(err) // Should never happen
+	// Use io.ReadFull with rand.Reader instead of rand.Read directly.
+	// crypto/rand.Read (since Go 1.24) treats reader errors as fatal and crashes the runtime.
+	// We want to handle errors gracefully (e.g. in Regenerate), so we bypass the fatal check.
+	if _, err := io.ReadFull(rand.Reader, b); err != nil {
+		return "", err
 	}
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(b), nil
 }
 
 // validIDChars is a lookup table for valid hex characters (0-9, a-f).

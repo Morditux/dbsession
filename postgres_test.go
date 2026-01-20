@@ -204,8 +204,12 @@ func BenchmarkPostgreSQLStore_SaveParallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
 		for pb.Next() {
+			id, err := generateID()
+			if err != nil {
+				b.Fatalf("failed to generate ID: %v", err)
+			}
 			session := &Session{
-				ID:        generateID(),
+				ID:        id,
 				Values:    map[string]any{"key": "value", "count": i},
 				CreatedAt: time.Now(),
 				ExpiresAt: time.Now().Add(time.Hour),
