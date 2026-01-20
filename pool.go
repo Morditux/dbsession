@@ -25,9 +25,7 @@ func PutBuffer(buf *bytes.Buffer) {
 	// buf.Bytes() returns the unread portion of the buffer, which
 	// corresponds to the data we just wrote (and presumably read/used).
 	b := buf.Bytes()
-	for i := range b {
-		b[i] = 0
-	}
+	clear(b)
 	buf.Reset()
 	bufferPool.Put(buf)
 }

@@ -19,37 +19,37 @@ type Session struct {
 // Get retrieves a value from the session in a thread-safe manner.
 func (s *Session) Get(key string) (any, bool) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	val, ok := s.Values[key]
+	s.mu.RUnlock()
 	return val, ok
 }
 
 // Set stores a value in the session in a thread-safe manner.
 func (s *Session) Set(key string, val any) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if s.Values == nil {
 		s.Values = make(map[string]any)
 	}
 	s.Values[key] = val
 	s.encoded = nil
+	s.mu.Unlock()
 }
 
 // Delete removes a value from the session in a thread-safe manner.
 func (s *Session) Delete(key string) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	delete(s.Values, key)
 	s.encoded = nil
+	s.mu.Unlock()
 }
 
 // Clear removes all values from the session and clears the encoded cache.
 // This is used to wipe sensitive data from memory when destroying a session.
 func (s *Session) Clear() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.Values = nil
 	s.encoded = nil
+	s.mu.Unlock()
 }
 
 // Store defines the interface for session persistence.

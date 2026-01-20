@@ -17,3 +17,11 @@
 ## 2026-01-20 - Skip Serialization for Empty Sessions
 **Learning:** Even empty maps incur serialization overhead (allocating encoders, buffers). For size limits, empty structures can be safely skipped as they will virtually never exceed reasonable limits.
 **Action:** Check `len(collection) > 0` before serializing for size validation to save allocations on the empty path.
+
+## 2026-01-20 - Avoid Defer in Hot Paths
+**Learning:** `defer` adds a small but measurable overhead (~50ns). In extremely hot paths like `Session.Get` or locking primitives called thousands of times per second, this accumulates.
+**Action:** Explicitly call `Unlock()` or `RUnlock()` in critical sections/hot paths instead of using `defer`.
+
+## 2026-01-20 - Use Built-in clear() for Buffers
+**Learning:** Go 1.21+ introduced `clear()` for slices/maps. While benchmarks may show it as comparable to a loop, it is more idiomatic and allows the compiler to optimize (e.g. to `memclr` instructions) more effectively on supported architectures.
+**Action:** Use `clear(b)` instead of `for i := range b { b[i] = 0 }`.
