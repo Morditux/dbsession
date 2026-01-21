@@ -27,3 +27,8 @@
 **Vulnerability:** Go 1.24+ `crypto/rand.Read` treats any error from the underlying reader as a fatal error that crashes the runtime, preventing graceful error handling (DoS risk if RNG fails transiently).
 **Learning:** We cannot simply catch errors from `rand.Read`. To handle RNG errors gracefully (e.g., return 500 instead of crash), we must bypass the wrapper and use `io.ReadFull(rand.Reader, b)` directly.
 **Prevention:** When robust error handling is required for random number generation, use `io.ReadFull(rand.Reader, ...)` and handle the returned error explicitly.
+
+## 2025-05-27 - Defense-in-Depth Session Expiration
+**Vulnerability:** Potential use of expired sessions if backend store has unreliable TTL or clock skew.
+**Learning:** Relying solely on the storage backend (e.g., Memcached, Redis) to handle session expiration is risky. If the store's eviction is lazy, or if there is clock skew, the application might receive and accept an expired session.
+**Prevention:** `Manager.Get` now explicitly checks `session.ExpiresAt.Before(time.Now())` immediately after retrieval. If expired, it treats the session as missing (returns a new one), ensuring the application never operates on expired data regardless of the backend's state.
