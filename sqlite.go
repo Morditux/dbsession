@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/gob"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -38,6 +39,27 @@ func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
 }
 
 func NewSQLiteStoreWithConfig(cfg SQLiteConfig) (*SQLiteStore, error) {
+	// Inject PRAGMAs into DSN to ensure they apply to all connections in the pool.
+	// Previous implementation using db.Exec only applied to the first connection.
+
+	// synchronous=NORMAL is safe in WAL mode and faster.
+	if !strings.Contains(cfg.DSN, "synchronous") {
+		separator := "?"
+		if strings.Contains(cfg.DSN, "?") {
+			separator = "&"
+		}
+		cfg.DSN = fmt.Sprintf("%s%s_pragma=synchronous=NORMAL", cfg.DSN, separator)
+	}
+
+	// busy_timeout to wait for locks
+	if !strings.Contains(cfg.DSN, "busy_timeout") {
+		separator := "?"
+		if strings.Contains(cfg.DSN, "?") {
+			separator = "&"
+		}
+		cfg.DSN = fmt.Sprintf("%s%s_pragma=busy_timeout=5000", cfg.DSN, separator)
+	}
+
 	db, err := sql.Open("sqlite", cfg.DSN)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open sqlite database: %w", err)
@@ -54,23 +76,11 @@ func NewSQLiteStoreWithConfig(cfg SQLiteConfig) (*SQLiteStore, error) {
 		db.SetConnMaxLifetime(cfg.ConnMaxLifetime)
 	}
 
-	// Enable WAL mode for better concurrent writes
+	// Enable WAL mode for better concurrent writes.
+	// This is persistent for the database file, so executing it once is sufficient.
 	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("failed to enable WAL mode: %w", err)
-	}
-
-	// Optimize write performance by reducing fsyncs
-	// WAL + synchronous=NORMAL is safe and much faster
-	if _, err := db.Exec("PRAGMA synchronous=NORMAL"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to set synchronous mode: %w", err)
-	}
-
-	// Set busy timeout to wait instead of failing immediately
-	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("failed to set busy_timeout: %w", err)
 	}
 
 	// Create table if not exists
