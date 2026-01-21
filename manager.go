@@ -138,6 +138,13 @@ func (m *Manager) Get(r *http.Request) (*Session, error) {
 		return m.New(), nil
 	}
 
+	// Security: Enforce expiration check at the Manager level.
+	// Some stores (like Memcached) might rely on lazy expiration or external TTLs,
+	// which can be unreliable or bypassed. We must ensure we never return an expired session.
+	if session.ExpiresAt.Before(time.Now()) {
+		return m.New(), nil
+	}
+
 	return session, nil
 }
 

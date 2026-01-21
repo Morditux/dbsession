@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSecurityConfig(t *testing.T) {
@@ -318,5 +319,42 @@ func TestDestroy_ClearsMemory(t *testing.T) {
 	defer s.mu.RUnlock()
 	if len(s.Values) > 0 {
 		t.Errorf("Expected Values map to be empty/nil, got len %d", len(s.Values))
+	}
+}
+
+type MockStoreExpired struct {
+	MockStore
+}
+
+func (m *MockStoreExpired) Get(ctx context.Context, id string) (*Session, error) {
+	return &Session{
+		ID:        "expired-session-id",
+		Values:    map[string]any{"key": "value"},
+		CreatedAt: time.Now().Add(-2 * time.Hour),
+		ExpiresAt: time.Now().Add(-1 * time.Hour),
+	}, nil
+}
+
+func TestManager_EnforcesExpiry(t *testing.T) {
+	store := &MockStoreExpired{}
+	mgr := NewManager(Config{Store: store})
+	defer mgr.Close()
+
+	// w is not needed as we don't write response
+	r := httptest.NewRequest("GET", "/", nil)
+	// Make sure ID is valid hex so it passes isValidID check
+	r.AddCookie(&http.Cookie{Name: "session_id", Value: "00000000000000000000000000000001"})
+
+	session, err := mgr.Get(r)
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if session.ID == "expired-session-id" {
+		t.Error("Manager returned an expired session! It should have returned a new one.")
+	}
+
+	if len(session.Values) > 0 {
+		t.Error("Manager returned a session with values! It should be empty.")
 	}
 }
