@@ -25,3 +25,7 @@
 ## 2026-01-20 - Use Built-in clear() for Buffers
 **Learning:** Go 1.21+ introduced `clear()` for slices/maps. While benchmarks may show it as comparable to a loop, it is more idiomatic and allows the compiler to optimize (e.g. to `memclr` instructions) more effectively on supported architectures.
 **Action:** Use `clear(b)` instead of `for i := range b { b[i] = 0 }`.
+
+## 2026-02-01 - SQLite Connection Pool Configuration
+**Learning:** `db.Exec("PRAGMA ...")` only affects the single connection used for that statement. When using `database/sql` connection pooling (default), subsequent queries may use other connections that lack these settings (e.g. `synchronous=FULL` instead of `NORMAL`), leading to performance degradation and `SQLITE_BUSY` errors.
+**Action:** Use DSN query parameters (e.g., `?_pragma=synchronous=NORMAL&_pragma=busy_timeout=5000`) to ensure critical settings are applied to *every* connection created by the pool.
