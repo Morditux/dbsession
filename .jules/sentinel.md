@@ -32,3 +32,8 @@
 **Vulnerability:** Potential use of expired sessions if backend store has unreliable TTL or clock skew.
 **Learning:** Relying solely on the storage backend (e.g., Memcached, Redis) to handle session expiration is risky. If the store's eviction is lazy, or if there is clock skew, the application might receive and accept an expired session.
 **Prevention:** `Manager.Get` now explicitly checks `session.ExpiresAt.Before(time.Now())` immediately after retrieval. If expired, it treats the session as missing (returns a new one), ensuring the application never operates on expired data regardless of the backend's state.
+
+## 2025-05-27 - End-to-End Session Size Enforcement
+**Vulnerability:** Memory DoS via Unchecked Session Reads.
+**Learning:** `Manager.Save` enforced `MaxSessionBytes` during writes, but the underlying `Store` implementations (`SQLiteStore`, `PostgreSQLStore`) did not enforce limits during `Get` or `Save` (when used directly). This left the application vulnerable to OOM crashes if the database contained oversized session blobs.
+**Prevention:** We added `MaxSessionBytes` configuration to the Store implementations and enforced the limit on both read (`Get`) and write (`Save`). This ensures that even if the `Manager` is bypassed or the DB is shared, the application refuses to allocate excessive memory for session data.

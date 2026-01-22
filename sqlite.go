@@ -14,12 +14,13 @@ import (
 )
 
 type SQLiteStore struct {
-	db          *sql.DB
-	mu          sync.Mutex // Serializes writes to avoid SQLITE_BUSY
-	saveStmt    *sql.Stmt
-	getStmt     *sql.Stmt
-	deleteStmt  *sql.Stmt
-	cleanupStmt *sql.Stmt
+	db              *sql.DB
+	mu              sync.Mutex // Serializes writes to avoid SQLITE_BUSY
+	saveStmt        *sql.Stmt
+	getStmt         *sql.Stmt
+	deleteStmt      *sql.Stmt
+	cleanupStmt     *sql.Stmt
+	maxSessionBytes int
 }
 
 // SQLiteConfig holds configuration for the SQLite store.
@@ -28,6 +29,7 @@ type SQLiteConfig struct {
 	MaxOpenConns    int
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
+	MaxSessionBytes int
 }
 
 func NewSQLiteStore(dsn string) (*SQLiteStore, error) {
@@ -98,7 +100,10 @@ func NewSQLiteStoreWithConfig(cfg SQLiteConfig) (*SQLiteStore, error) {
 		return nil, fmt.Errorf("failed to create sessions table: %w", err)
 	}
 
-	store := &SQLiteStore{db: db}
+	store := &SQLiteStore{
+		db:              db,
+		maxSessionBytes: cfg.MaxSessionBytes,
+	}
 
 	// Prepare statements
 	store.saveStmt, err = db.Prepare(`
@@ -155,6 +160,10 @@ func (s *SQLiteStore) Get(ctx context.Context, id string) (*Session, error) {
 		return nil, fmt.Errorf("failed to scan session: %w", err)
 	}
 
+	if s.maxSessionBytes > 0 && len(data) > s.maxSessionBytes {
+		return nil, ErrSessionTooLarge
+	}
+
 	var values map[string]any
 
 	// Optimize for empty/new sessions: skip Gob decoding if data is empty/NULL.
@@ -200,6 +209,10 @@ func (s *SQLiteStore) Save(ctx context.Context, session *Session) error {
 			}
 			blob = buf.Bytes()
 		}
+	}
+
+	if s.maxSessionBytes > 0 && len(blob) > s.maxSessionBytes {
+		return ErrSessionTooLarge
 	}
 
 	s.mu.Lock()
