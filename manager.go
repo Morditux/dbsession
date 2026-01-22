@@ -301,14 +301,21 @@ func (m *Manager) New() *Session {
 }
 
 func generateID() (string, error) {
-	b := make([]byte, 16)
+	ptr := idBufferPool.Get().(*[]byte)
+	b := *ptr
+
 	// Use io.ReadFull with rand.Reader instead of rand.Read directly.
 	// crypto/rand.Read (since Go 1.24) treats reader errors as fatal and crashes the runtime.
 	// We want to handle errors gracefully (e.g. in Regenerate), so we bypass the fatal check.
 	if _, err := io.ReadFull(rand.Reader, b); err != nil {
+		clear(b)
+		idBufferPool.Put(ptr)
 		return "", err
 	}
-	return hex.EncodeToString(b), nil
+	id := hex.EncodeToString(b)
+	clear(b)
+	idBufferPool.Put(ptr)
+	return id, nil
 }
 
 // validIDChars is a lookup table for valid hex characters (0-9, a-f).

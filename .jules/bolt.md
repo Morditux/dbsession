@@ -29,3 +29,7 @@
 ## 2026-02-01 - SQLite Connection Pool Configuration
 **Learning:** `db.Exec("PRAGMA ...")` only affects the single connection used for that statement. When using `database/sql` connection pooling (default), subsequent queries may use other connections that lack these settings (e.g. `synchronous=FULL` instead of `NORMAL`), leading to performance degradation and `SQLITE_BUSY` errors.
 **Action:** Use DSN query parameters (e.g., `?_pragma=synchronous=NORMAL&_pragma=busy_timeout=5000`) to ensure critical settings are applied to *every* connection created by the pool.
+
+## 2026-02-05 - Safety over Micro-Optimizations
+**Learning:** Removing `defer` in hot paths (`Manager.Save`) to save ~50ns (or 4%) was rejected because it compromises panic safety (potential deadlocks).
+**Action:** Prioritize robustness. If `defer` overhead is a bottleneck, optimize the function logic first. Use manual cleanup only if strictly necessary and carefully reviewed (e.g., using `defer` for fallback).
