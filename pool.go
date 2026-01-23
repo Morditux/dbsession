@@ -17,6 +17,13 @@ var bufferPool = sync.Pool{
 	},
 }
 
+var idBufferPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 16)
+		return &b
+	},
+}
+
 // PutBuffer wipes the buffer's content and returns it to the pool.
 // This is a security enhancement to ensure sensitive session data
 // is not retained in memory longer than necessary.
