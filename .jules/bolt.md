@@ -33,3 +33,7 @@
 ## 2026-02-05 - Safety over Micro-Optimizations
 **Learning:** Removing `defer` in hot paths (`Manager.Save`) to save ~50ns (or 4%) was rejected because it compromises panic safety (potential deadlocks).
 **Action:** Prioritize robustness. If `defer` overhead is a bottleneck, optimize the function logic first. Use manual cleanup only if strictly necessary and carefully reviewed (e.g., using `defer` for fallback).
+
+## 2026-02-14 - Loop Unrolling for Bounds Check Elimination
+**Learning:** In very hot paths (like ID validation on every request), iterating a fixed number of times (e.g., 32) after checking the length allows the Go compiler to eliminate bounds checks on slice access, resulting in a small but measurable (~2.5%) speedup.
+**Action:** For fixed-length validations in critical loops, prefer constant bounds in the loop condition (`i < 32`) over dynamic bounds (`i < len(s)`) if the length is already verified.

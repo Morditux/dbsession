@@ -6,8 +6,8 @@ import (
 	"crypto/rand"
 	"encoding/gob"
 	"encoding/hex"
-	"io"
 	"errors"
+	"io"
 	"net/http"
 	"time"
 )
@@ -334,7 +334,9 @@ func isValidID(id string) bool {
 	if len(id) != 32 {
 		return false
 	}
-	for i := 0; i < len(id); i++ {
+	// Optimization: Iterate exactly 32 times. Since we verified len(id) == 32,
+	// the compiler can eliminate bounds checks for id[i] inside the loop.
+	for i := 0; i < 32; i++ {
 		// Lookup table is faster than multiple comparisons
 		if !validIDChars[id[i]] {
 			return false
