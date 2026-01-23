@@ -12,11 +12,12 @@ import (
 )
 
 type PostgreSQLStore struct {
-	db          *sql.DB
-	saveStmt    *sql.Stmt
-	getStmt     *sql.Stmt
-	deleteStmt  *sql.Stmt
-	cleanupStmt *sql.Stmt
+	db              *sql.DB
+	saveStmt        *sql.Stmt
+	getStmt         *sql.Stmt
+	deleteStmt      *sql.Stmt
+	cleanupStmt     *sql.Stmt
+	maxSessionBytes int
 }
 
 // PostgreSQLConfig holds configuration for the PostgreSQL store.
@@ -26,6 +27,7 @@ type PostgreSQLConfig struct {
 	MaxIdleConns    int
 	ConnMaxLifetime time.Duration
 	ConnMaxIdleTime time.Duration
+	MaxSessionBytes int
 }
 
 // NewPostgreSQLStore creates a new PostgreSQL store with default configuration.
@@ -81,7 +83,10 @@ func NewPostgreSQLStoreWithConfig(cfg PostgreSQLConfig) (*PostgreSQLStore, error
 		return nil, fmt.Errorf("failed to create sessions table: %w", err)
 	}
 
-	store := &PostgreSQLStore{db: db}
+	store := &PostgreSQLStore{
+		db:              db,
+		maxSessionBytes: cfg.MaxSessionBytes,
+	}
 
 	// Prepare statements
 	store.saveStmt, err = db.Prepare(`
@@ -141,6 +146,10 @@ func (s *PostgreSQLStore) Get(ctx context.Context, id string) (*Session, error) 
 		return nil, fmt.Errorf("failed to scan session: %w", err)
 	}
 
+	if s.maxSessionBytes > 0 && len(data) > s.maxSessionBytes {
+		return nil, ErrSessionTooLarge
+	}
+
 	var values map[string]any
 
 	// Optimize for empty/new sessions: skip Gob decoding if data is empty/NULL.
@@ -184,6 +193,10 @@ func (s *PostgreSQLStore) Save(ctx context.Context, session *Session) error {
 			}
 			blob = buf.Bytes()
 		}
+	}
+
+	if s.maxSessionBytes > 0 && len(blob) > s.maxSessionBytes {
+		return ErrSessionTooLarge
 	}
 
 	_, err := s.saveStmt.ExecContext(ctx, session.ID, blob, session.CreatedAt, session.ExpiresAt)
