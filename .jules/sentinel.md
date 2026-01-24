@@ -37,3 +37,8 @@
 **Vulnerability:** Memory DoS via Unchecked Session Reads.
 **Learning:** `Manager.Save` enforced `MaxSessionBytes` during writes, but the underlying `Store` implementations (`SQLiteStore`, `PostgreSQLStore`) did not enforce limits during `Get` or `Save` (when used directly). This left the application vulnerable to OOM crashes if the database contained oversized session blobs.
 **Prevention:** We added `MaxSessionBytes` configuration to the Store implementations and enforced the limit on both read (`Get`) and write (`Save`). This ensures that even if the `Manager` is bypassed or the DB is shared, the application refuses to allocate excessive memory for session data.
+
+## 2025-05-27 - Fail-Safe Session Memory Clearing
+**Vulnerability:** Sensitive session data persisted in memory if `Manager.Destroy` failed (e.g., store unreachable).
+**Learning:** We only called `s.Clear()` after checking for error from `store.Delete`. Defense in depth requires clearing sensitive data regardless of external dependency failures.
+**Prevention:** Use `defer s.Clear()` in destruction flows to ensure memory is wiped even if the persistence layer returns an error.

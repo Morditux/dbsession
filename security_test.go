@@ -358,3 +358,34 @@ func TestManager_EnforcesExpiry(t *testing.T) {
 		t.Error("Manager returned a session with values! It should be empty.")
 	}
 }
+
+func TestDestroy_ClearsMemory_OnError(t *testing.T) {
+	// Setup store that fails on Delete
+	store := &MockStoreFailDelete{}
+	mgr := NewManager(Config{Store: store})
+	defer mgr.Close()
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/", nil)
+	s := mgr.New()
+
+	s.Set("secret", "sensitive-data")
+
+	// Destroy fails at store level
+	if err := mgr.Destroy(w, r, s); err == nil {
+		t.Fatal("Expected Destroy to return error from store")
+	}
+
+	// Verify memory should still be cleared for defense-in-depth
+	val, ok := s.Get("secret")
+	if ok || val != nil {
+		t.Error("Vulnerability: Session values persisted in memory after failed Destroy")
+	}
+
+	// Verify internal map
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.Values) > 0 {
+		t.Errorf("Vulnerability: Values map not empty, len %d", len(s.Values))
+	}
+}
