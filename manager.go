@@ -276,13 +276,14 @@ func (m *Manager) Destroy(w http.ResponseWriter, r *http.Request, s *Session) er
 		SameSite: m.sameSite,
 	})
 
+	// Security: Clear the session values from memory regardless of whether
+	// the store deletion succeeds or fails. This ensures sensitive data
+	// is wiped from memory (Defense in Depth).
+	defer s.Clear()
+
 	if err := m.store.Delete(r.Context(), s.ID); err != nil {
 		return err
 	}
-
-	// Security: Clear the session values from memory to reduce the window
-	// of exposure for sensitive data.
-	s.Clear()
 
 	return nil
 }
