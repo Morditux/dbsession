@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/gob"
 	"encoding/hex"
 	"errors"
 	"io"
+	mrand "math/rand/v2"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -300,18 +303,40 @@ func (m *Manager) New() *Session {
 	}
 }
 
+// rngPool reuses *math/rand/v2.Rand instances to amortize the cost of
+// seeding from crypto/rand. This significantly reduces syscall overhead
+// for ID generation.
+var rngPool = sync.Pool{}
+
 func generateID() (string, error) {
 	ptr := idBufferPool.Get().(*[]byte)
 	b := *ptr
 
-	// Use io.ReadFull with rand.Reader instead of rand.Read directly.
-	// crypto/rand.Read (since Go 1.24) treats reader errors as fatal and crashes the runtime.
-	// We want to handle errors gracefully (e.g. in Regenerate), so we bypass the fatal check.
-	if _, err := io.ReadFull(rand.Reader, b); err != nil {
-		clear(b)
-		idBufferPool.Put(ptr)
-		return "", err
+	// Retrieve a seeded generator from the pool.
+	v := rngPool.Get()
+	var rng *mrand.Rand
+	if v == nil {
+		// First time use or pool is empty: seed a new generator from crypto/rand.
+		var seed [32]byte
+		if _, err := io.ReadFull(rand.Reader, seed[:]); err != nil {
+			clear(b)
+			idBufferPool.Put(ptr)
+			return "", err
+		}
+		rng = mrand.New(mrand.NewChaCha8(seed))
+	} else {
+		rng = v.(*mrand.Rand)
 	}
+
+	// Read 16 bytes (128 bits) of randomness.
+	// Since math/rand/v2 provides uint64, we fill the buffer 8 bytes at a time.
+	// This avoids allocating a new buffer or stream wrapper.
+	binary.LittleEndian.PutUint64(b[0:8], rng.Uint64())
+	binary.LittleEndian.PutUint64(b[8:16], rng.Uint64())
+
+	// Return the generator to the pool for reuse.
+	rngPool.Put(rng)
+
 	id := hex.EncodeToString(b)
 	clear(b)
 	idBufferPool.Put(ptr)
