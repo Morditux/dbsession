@@ -13,3 +13,12 @@ func BenchmarkIsValidID(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkGenerateID(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_, err := generateID()
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
