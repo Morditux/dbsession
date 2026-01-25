@@ -313,6 +313,9 @@ func generateID() (string, error) {
 	ptr := idBufferPool.Get().(*[]byte)
 	b := *ptr
 
+	// Use first 16 bytes for entropy
+	entropy := b[:16]
+
 	// Retrieve a seeded generator from the pool.
 	v := rngPool.Get()
 	var rng *mrand.Rand
@@ -332,13 +335,18 @@ func generateID() (string, error) {
 	// Read 16 bytes (128 bits) of randomness.
 	// Since math/rand/v2 provides uint64, we fill the buffer 8 bytes at a time.
 	// This avoids allocating a new buffer or stream wrapper.
-	binary.LittleEndian.PutUint64(b[0:8], rng.Uint64())
-	binary.LittleEndian.PutUint64(b[8:16], rng.Uint64())
+	binary.LittleEndian.PutUint64(entropy[0:8], rng.Uint64())
+	binary.LittleEndian.PutUint64(entropy[8:16], rng.Uint64())
 
 	// Return the generator to the pool for reuse.
 	rngPool.Put(rng)
 
-	id := hex.EncodeToString(b)
+	// Optimization: Encode hex directly into the remaining 32 bytes of the buffer.
+	// This avoids allocating a new byte slice inside hex.EncodeToString.
+	hexDst := b[16:]
+	hex.Encode(hexDst, entropy)
+	id := string(hexDst)
+
 	clear(b)
 	idBufferPool.Put(ptr)
 	return id, nil
