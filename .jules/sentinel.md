@@ -42,3 +42,8 @@
 **Vulnerability:** Sensitive session data persisted in memory if `Manager.Destroy` failed (e.g., store unreachable).
 **Learning:** We only called `s.Clear()` after checking for error from `store.Delete`. Defense in depth requires clearing sensitive data regardless of external dependency failures.
 **Prevention:** Use `defer s.Clear()` in destruction flows to ensure memory is wiped even if the persistence layer returns an error.
+
+## 2025-05-28 - DoS Prevention via Memcached Timeouts
+**Vulnerability:** Denial of Service (DoS) due to hanging Memcached connections. `gomemcache` does not support `context.Context` cancellation in its methods, meaning `Store.Get/Save` could block indefinitely if the Memcached server becomes unresponsive.
+**Learning:** Relying on `context.Context` alone is insufficient when using libraries that don't support it. We must configure client-level timeouts.
+**Prevention:** Added `Timeout` configuration to `MemcachedConfig` and set a default timeout of 1 second in `NewMemcachedStore`. This ensures operations fail fast rather than hanging the application.
