@@ -19,7 +19,8 @@ var bufferPool = sync.Pool{
 
 var idBufferPool = sync.Pool{
 	New: func() any {
-		b := make([]byte, 16)
+		// 48 bytes: 16 bytes for raw entropy + 32 bytes for hex encoding.
+		b := make([]byte, 48)
 		return &b
 	},
 }

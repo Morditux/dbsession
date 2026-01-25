@@ -41,3 +41,7 @@
 ## 2026-02-27 - User-Space CSPRNG for Session IDs
 **Learning:** `crypto/rand` involves a syscall for every read, which is relatively expensive (~1.3µs) when generating session IDs frequently. `math/rand/v2.ChaCha8` is a CSPRNG that can be seeded from `crypto/rand` once and reused.
 **Action:** Use a `sync.Pool` of `*math/rand/v2.Rand` (seeded with ChaCha8) to amortize the seeding cost. This reduces ID generation time by ~8x (to ~150ns) while maintaining cryptographic security.
+
+## 2026-03-05 - Zero-Alloc Hex Encoding with Split Buffers
+**Learning:** `hex.EncodeToString` allocates a new byte slice and a string. By using a pooled buffer large enough for both the source (entropy) and the destination (hex output), we can use `hex.Encode` to write directly to the buffer and cast to string, reducing allocations from 2 to 1 per ID generation.
+**Action:** For frequent ID generation involving hex encoding, use a single pooled byte slice partitioned into `src` and `dst` segments.
