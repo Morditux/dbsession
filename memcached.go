@@ -22,6 +22,7 @@ type MemcachedConfig struct {
 	Servers         []string
 	TTL             time.Duration
 	MaxSessionBytes int
+	Timeout         time.Duration // Timeout for Memcached operations. Defaults to 0 (no timeout) if not set.
 }
 
 // NewMemcachedStore creates a new MemcachedStore.
@@ -29,13 +30,19 @@ func NewMemcachedStore(ttl time.Duration, servers ...string) *MemcachedStore {
 	return NewMemcachedStoreWithConfig(MemcachedConfig{
 		Servers: servers,
 		TTL:     ttl,
+		// Security: Set a default timeout to prevent indefinite hanging if Memcached is down.
+		// 1 second is usually sufficient for local/network cache.
+		Timeout: 1 * time.Second,
 	})
 }
 
 // NewMemcachedStoreWithConfig creates a new MemcachedStore with custom configuration.
 func NewMemcachedStoreWithConfig(cfg MemcachedConfig) *MemcachedStore {
+	client := memcache.New(cfg.Servers...)
+	client.Timeout = cfg.Timeout
+
 	return &MemcachedStore{
-		client:          memcache.New(cfg.Servers...),
+		client:          client,
 		ttl:             cfg.TTL,
 		maxSessionBytes: cfg.MaxSessionBytes,
 	}
