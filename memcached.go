@@ -110,16 +110,12 @@ func (s *MemcachedStore) Save(ctx context.Context, session *Session) error {
 	}
 
 	// Use specified TTL or calculate from session.ExpiresAt
-	var expiration int32
-	if !session.ExpiresAt.IsZero() {
-		diff := time.Until(session.ExpiresAt)
-		if diff <= 0 {
-			return nil // Already expired
-		}
-		expiration = int32(diff.Seconds())
-	} else {
-		expiration = int32(s.ttl.Seconds())
+	// Also check if we need to skip saving if already expired.
+	if !session.ExpiresAt.IsZero() && time.Until(session.ExpiresAt) <= 0 {
+		return nil // Already expired
 	}
+
+	expiration := calculateMemcachedExpiration(time.Now(), session.ExpiresAt, s.ttl)
 
 	err := s.client.Set(&memcache.Item{
 		Key:        session.ID,
@@ -154,4 +150,34 @@ func (s *MemcachedStore) Cleanup(ctx context.Context) error {
 // Close is a no-op for Memcached client.
 func (s *MemcachedStore) Close() error {
 	return nil
+}
+
+// calculateMemcachedExpiration calculates the expiration value for Memcached.
+// Memcached treats values > 30 days (60*60*24*30 seconds) as absolute Unix timestamps.
+// Values <= 30 days are treated as a delta from the current time.
+func calculateMemcachedExpiration(now time.Time, expiresAt time.Time, ttl time.Duration) int32 {
+	const maxDelta = 30 * 24 * 60 * 60 // 30 days in seconds
+
+	var duration time.Duration
+	if !expiresAt.IsZero() {
+		duration = expiresAt.Sub(now)
+	} else {
+		duration = ttl
+	}
+
+	// If duration exceeds 30 days, we MUST use absolute Unix timestamp.
+	// Otherwise, Memcached will interpret a large delta as a timestamp in 1970 (expired).
+	if duration > maxDelta*time.Second {
+		if !expiresAt.IsZero() {
+			return int32(expiresAt.Unix())
+		}
+		return int32(now.Add(ttl).Unix())
+	}
+
+	// For short durations, use delta seconds.
+	// Ensure we don't return negative values.
+	if duration < 0 {
+		return 0
+	}
+	return int32(duration.Seconds())
 }
