@@ -296,11 +296,12 @@ func (m *Manager) New() *Session {
 	if err != nil {
 		panic(err)
 	}
+	now := time.Now()
 	return &Session{
 		ID:        id,
 		Values:    make(map[string]any),
-		CreatedAt: time.Now(),
-		ExpiresAt: time.Now().Add(m.ttl),
+		CreatedAt: now,
+		ExpiresAt: now.Add(m.ttl),
 	}
 }
 

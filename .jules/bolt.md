@@ -45,3 +45,7 @@
 ## 2026-03-05 - Zero-Alloc Hex Encoding with Split Buffers
 **Learning:** `hex.EncodeToString` allocates a new byte slice and a string. By using a pooled buffer large enough for both the source (entropy) and the destination (hex output), we can use `hex.Encode` to write directly to the buffer and cast to string, reducing allocations from 2 to 1 per ID generation.
 **Action:** For frequent ID generation involving hex encoding, use a single pooled byte slice partitioned into `src` and `dst` segments.
+
+## 2026-03-06 - Timestamp Consistency in Session Creation
+**Learning:** Calling `time.Now()` multiple times during object creation (e.g. for `CreatedAt` and `ExpiresAt`) introduces a tiny window where timestamps are inconsistent, in addition to the extra syscall overhead.
+**Action:** Capture `time.Now()` once and reuse it for all timestamp fields in a struct constructor to ensure consistency and save cycles.
