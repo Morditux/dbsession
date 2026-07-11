@@ -7,15 +7,14 @@ import (
 	"time"
 )
 
-// TestRaceCondition demonstrates a regression test for a race condition between Manager.Save and Session.Set.
-// Manager.Save reads s.Values (via encoding), while Session.Set writes to it.
-// This test ensures that Manager.Save properly locks the session during the save operation.
+// TestRaceCondition is a regression test for concurrent Manager.Save and
+// Session.Set calls. Save persists a snapshot while Set can continue safely.
 func TestRaceCondition(t *testing.T) {
 	// We need a store that doesn't just do nothing, but simulates saving
 	// to trigger the Manager.Save logic that encodes data.
 	// Actually Manager.Save encodes data IF maxSessionBytes > 0.
 	store := &MockStore{}
-	mgr := NewManager(Config{
+	mgr := MustNewManager(Config{
 		Store:           store,
 		TTL:             time.Hour,
 		MaxSessionBytes: 1024, // Enable size check which triggers encoding in Manager.Save
@@ -51,7 +50,7 @@ func TestRaceCondition(t *testing.T) {
 		<-start
 		end := time.Now().Add(duration)
 		for time.Now().Before(end) {
-			// Save triggers gob.Encode(s.Values) in Manager.Save
+			// Save snapshots and encodes the session values.
 			_ = mgr.Save(w, req, session)
 		}
 	}()

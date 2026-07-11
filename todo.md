@@ -104,11 +104,11 @@ Mesure réalisée avec `BenchmarkGobDecodeReader`, cinq répétitions sur AMD Ry
 
 **Actions.**
 
-- [ ] Introduire un constructeur validant, idéalement `NewManager(cfg) (*Manager, error)` ; préserver temporairement l'API avec un `MustNewManager` si nécessaire.
-- [ ] Refuser `Store == nil`, `TTL <= 0`, `CleanupInterval < 0`, `MaxSessionBytes < 0`, les valeurs `SameSite` inconnues et les noms de cookie invalides.
-- [ ] Définir explicitement comment désactiver le cleanup (par exemple `CleanupInterval < 0` via une constante/options dédiée), sans passer cette valeur à `NewTicker`.
-- [ ] Exiger un TTL compatible avec `MaxAge` et définir la politique pour les TTL inférieurs à une seconde.
-- [ ] Valider `CookiePath`/`CookieDomain` et avertir contre un domaine trop large.
+- [x] Introduire un constructeur validant, idéalement `NewManager(cfg) (*Manager, error)` ; préserver temporairement l'API avec un `MustNewManager` si nécessaire.
+- [x] Refuser les stores nil, les TTL explicites négatifs ou sub-seconde, `CleanupInterval < 0`, `MaxSessionBytes < 0`, les valeurs `SameSite` inconnues et les noms de cookie invalides. `TTL == 0` conserve le défaut documenté de 24 heures.
+- [x] Définir explicitement comment désactiver le cleanup avec `DisableCleanup`, sans passer de durée sentinelle à `NewTicker`.
+- [x] Exiger un TTL compatible avec `MaxAge` et définir la politique pour les TTL inférieurs à une seconde.
+- [x] Valider `CookiePath`/`CookieDomain`, les contraintes `__Host-`/`__Secure-`, et avertir dans la documentation contre un domaine trop large.
 
 ### P1 — Éviter le `panic` si la source aléatoire échoue
 
@@ -140,12 +140,12 @@ Mesure réalisée avec `BenchmarkGobDecodeReader`, cinq répétitions sur AMD Ry
 
 **Actions.**
 
-- [ ] Choisir un contrat clair : session non thread-safe sans mutex interne, ou session réellement thread-safe avec champs privés et accesseurs.
-- [ ] Option recommandée : rendre la map privée, fournir `Get/Set/Delete/ValuesSnapshot`, verrouiller aussi les métadonnées et faire persister un snapshot immuable.
-- [ ] Verrouiller toute la transition d'identifiant lors de `Regenerate` sans deadlock avec `Save`.
-- [ ] Documenter que les objets mutables stockés doivent être copiés ou ne pas être modifiés concurremment.
-- [ ] Mettre à jour README/doc.go, actuellement contradictoires avec les méthodes thread-safe.
-- [ ] Étendre les tests race à l'accès direct, `Regenerate` contre `Save/Set`, et `Destroy` contre `Get/Set`.
+- [x] Choisir un contrat clair : `Session` est réellement thread-safe, avec champs privés et accesseurs.
+- [x] Rendre la map privée, fournir `Get/Set/Delete/ValuesSnapshot`, verrouiller aussi les métadonnées et faire persister un snapshot immuable.
+- [x] Verrouiller toute la transition d'identifiant lors de `Regenerate` sans deadlock avec `Save`.
+- [x] Documenter que les objets mutables stockés doivent être copiés ou ne pas être modifiés concurremment.
+- [x] Mettre à jour README/doc.go pour documenter le contrat thread-safe.
+- [x] Étendre les tests race à l'indépendance des snapshots, `Regenerate` contre `Save/Set`, et `Destroy` contre `Get/Set`.
 
 ### P1 — Renforcer la rotation contre la fixation et les courses multi-requêtes
 

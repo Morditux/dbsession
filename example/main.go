@@ -21,12 +21,15 @@ func main() {
 	// 	log.Fatalf("failed to create store: %v", err)
 	// }
 	// Initialize Manager with 1 hour TTL and 5 minutes cleanup interval
-	mgr := dbsession.NewManager(dbsession.Config{
+	mgr, err := dbsession.NewManager(dbsession.Config{
 		Store:           store,
 		TTL:             time.Hour,
 		CookieName:      "my_app_session",
 		CleanupInterval: 5 * time.Minute,
 	})
+	if err != nil {
+		log.Fatalf("invalid manager configuration: %v", err)
+	}
 	defer mgr.Close()
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

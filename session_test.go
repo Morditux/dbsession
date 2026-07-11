@@ -20,12 +20,12 @@ func TestSQLiteStore(t *testing.T) {
 	defer store.Close()
 
 	ctx := context.Background()
-	s := &Session{
+	s := RestoreSession(SessionSnapshot{
 		ID:        "test-session",
 		Values:    map[string]any{"foo": "bar", "count": 42},
 		CreatedAt: time.Now(),
 		ExpiresAt: time.Now().Add(time.Hour),
-	}
+	})
 
 	// Test Save
 	if err := store.Save(ctx, s); err != nil {
@@ -33,25 +33,26 @@ func TestSQLiteStore(t *testing.T) {
 	}
 
 	// Test Get
-	got, err := store.Get(ctx, s.ID)
+	got, err := store.Get(ctx, s.ID())
 	if err != nil {
 		t.Errorf("failed to get session: %v", err)
 	}
 	if got == nil {
 		t.Fatal("session not found")
 	}
-	if got.ID != s.ID {
-		t.Errorf("expected ID %s, got %s", s.ID, got.ID)
+	if got.ID() != s.ID() {
+		t.Errorf("expected ID %s, got %s", s.ID(), got.ID())
 	}
-	if got.Values["foo"] != "bar" || got.Values["count"].(int) != 42 {
-		t.Errorf("unexpected values: %v", got.Values)
+	values := got.ValuesSnapshot()
+	if values["foo"] != "bar" || values["count"].(int) != 42 {
+		t.Errorf("unexpected values: %v", values)
 	}
 
 	// Test Delete
-	if err := store.Delete(ctx, s.ID); err != nil {
+	if err := store.Delete(ctx, s.ID()); err != nil {
 		t.Errorf("failed to delete session: %v", err)
 	}
-	got, err = store.Get(ctx, s.ID)
+	got, err = store.Get(ctx, s.ID())
 	if err != nil {
 		t.Errorf("failed to get session after delete: %v", err)
 	}
@@ -60,12 +61,12 @@ func TestSQLiteStore(t *testing.T) {
 	}
 
 	// Test Cleanup
-	expired := &Session{
+	expired := RestoreSession(SessionSnapshot{
 		ID:        "expired-session",
 		Values:    map[string]any{"key": "val"},
 		CreatedAt: time.Now().Add(-2 * time.Hour),
 		ExpiresAt: time.Now().Add(-time.Hour),
-	}
+	})
 	if err := store.Save(ctx, expired); err != nil {
 		t.Errorf("failed to save expired session: %v", err)
 	}
@@ -74,7 +75,7 @@ func TestSQLiteStore(t *testing.T) {
 		t.Errorf("failed cleanup: %v", err)
 	}
 
-	got, err = store.Get(ctx, expired.ID)
+	got, err = store.Get(ctx, expired.ID())
 	if err != nil {
 		t.Errorf("failed to get after cleanup: %v", err)
 	}
@@ -89,7 +90,7 @@ func TestManager_Regenerate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create store: %v", err)
 	}
-	manager := NewManager(Config{
+	manager := MustNewManager(Config{
 		Store: store,
 	})
 	defer manager.Close()
@@ -108,7 +109,7 @@ func TestManager_Regenerate(t *testing.T) {
 		t.Fatalf("failed to save session: %v", err)
 	}
 
-	oldID := session.ID
+	oldID := session.ID()
 
 	// 2. Regenerate
 	if err := manager.Regenerate(w, req, session); err != nil {
@@ -116,7 +117,7 @@ func TestManager_Regenerate(t *testing.T) {
 	}
 
 	// Check results
-	if session.ID == oldID {
+	if session.ID() == oldID {
 		t.Errorf("expected new session ID, got same ID")
 	}
 
@@ -135,7 +136,7 @@ func TestManager_Regenerate(t *testing.T) {
 	}
 
 	// Verify new session is persisted
-	newSess, err := store.Get(context.Background(), session.ID)
+	newSess, err := store.Get(context.Background(), session.ID())
 	if err != nil {
 		t.Fatalf("failed to check new session: %v", err)
 	}
@@ -153,7 +154,7 @@ func TestManager(t *testing.T) {
 		t.Fatalf("failed to create store: %v", err)
 	}
 
-	mgr := NewManager(Config{
+	mgr := MustNewManager(Config{
 		Store: store,
 		TTL:   time.Minute,
 	})
@@ -161,7 +162,7 @@ func TestManager(t *testing.T) {
 
 	// Test New and Save
 	s := mgr.New()
-	s.Values["user"] = "mordicus"
+	s.Set("user", "mordicus")
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/", nil)
@@ -192,11 +193,11 @@ func TestManager(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get: %v", err)
 	}
-	if s2.ID != s.ID {
-		t.Errorf("ID mismatch: %s != %s", s2.ID, s.ID)
+	if s2.ID() != s.ID() {
+		t.Errorf("ID mismatch: %s != %s", s2.ID(), s.ID())
 	}
-	if s2.Values["user"] != "mordicus" {
-		t.Errorf("value mismatch: %v", s2.Values["user"])
+	if user, _ := s2.Get("user"); user != "mordicus" {
+		t.Errorf("value mismatch: %v", user)
 	}
 
 	// Test Destroy
@@ -228,12 +229,12 @@ func TestMemcachedStore(t *testing.T) {
 
 	// Simple check to see if memcached is up
 	ctx := context.Background()
-	testSession := &Session{
+	testSession := RestoreSession(SessionSnapshot{
 		ID:        "test-memcached",
 		Values:    map[string]any{"color": "blue"},
 		CreatedAt: time.Now(),
 		ExpiresAt: time.Now().Add(time.Minute),
-	}
+	})
 
 	err := store.Save(ctx, testSession)
 	if err != nil {
@@ -241,22 +242,22 @@ func TestMemcachedStore(t *testing.T) {
 	}
 
 	// Test Get
-	got, err := store.Get(ctx, testSession.ID)
+	got, err := store.Get(ctx, testSession.ID())
 	if err != nil {
 		t.Fatalf("failed to get from memcached: %v", err)
 	}
 	if got == nil {
 		t.Fatal("session not found in memcached")
 	}
-	if got.Values["color"] != "blue" {
-		t.Errorf("expected color blue, got %v", got.Values["color"])
+	if color, _ := got.Get("color"); color != "blue" {
+		t.Errorf("expected color blue, got %v", color)
 	}
 
 	// Test Delete
-	if err := store.Delete(ctx, testSession.ID); err != nil {
+	if err := store.Delete(ctx, testSession.ID()); err != nil {
 		t.Errorf("failed to delete from memcached: %v", err)
 	}
-	got, err = store.Get(ctx, testSession.ID)
+	got, err = store.Get(ctx, testSession.ID())
 	if err != nil {
 		t.Errorf("failed to get after delete: %v", err)
 	}
@@ -281,12 +282,12 @@ func BenchmarkSQLiteStore_Save(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		session := &Session{
+		session := RestoreSession(SessionSnapshot{
 			ID:        "bench-session",
 			Values:    map[string]any{"key": "value", "count": i},
 			CreatedAt: time.Now(),
 			ExpiresAt: time.Now().Add(time.Hour),
-		}
+		})
 		if err := store.Save(ctx, session); err != nil {
 			b.Fatalf("failed to save: %v", err)
 		}
@@ -304,19 +305,19 @@ func BenchmarkSQLiteStore_Get(b *testing.B) {
 	defer store.Close()
 
 	ctx := context.Background()
-	session := &Session{
+	session := RestoreSession(SessionSnapshot{
 		ID:        "bench-get-session",
 		Values:    map[string]any{"key": "value"},
 		CreatedAt: time.Now(),
 		ExpiresAt: time.Now().Add(time.Hour),
-	}
+	})
 	if err := store.Save(ctx, session); err != nil {
 		b.Fatalf("failed to save: %v", err)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := store.Get(ctx, session.ID)
+		_, err := store.Get(ctx, session.ID())
 		if err != nil {
 			b.Fatalf("failed to get: %v", err)
 		}
@@ -330,24 +331,24 @@ func BenchmarkMemcachedStore_Save(b *testing.B) {
 	ctx := context.Background()
 
 	// Check if memcached is available
-	testSession := &Session{
+	testSession := RestoreSession(SessionSnapshot{
 		ID:        "bench-mc-test",
 		Values:    map[string]any{"test": true},
 		CreatedAt: time.Now(),
 		ExpiresAt: time.Now().Add(time.Hour),
-	}
+	})
 	if err := store.Save(ctx, testSession); err != nil {
 		b.Skipf("Skipping Memcached benchmark: %v", err)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		session := &Session{
+		session := RestoreSession(SessionSnapshot{
 			ID:        "bench-mc-session",
 			Values:    map[string]any{"key": "value", "count": i},
 			CreatedAt: time.Now(),
 			ExpiresAt: time.Now().Add(time.Hour),
-		}
+		})
 		if err := store.Save(ctx, session); err != nil {
 			b.Fatalf("failed to save: %v", err)
 		}
@@ -359,19 +360,19 @@ func BenchmarkMemcachedStore_Get(b *testing.B) {
 	store := NewMemcachedStore(time.Hour, server)
 
 	ctx := context.Background()
-	session := &Session{
+	session := RestoreSession(SessionSnapshot{
 		ID:        "bench-mc-get-session",
 		Values:    map[string]any{"key": "value"},
 		CreatedAt: time.Now(),
 		ExpiresAt: time.Now().Add(time.Hour),
-	}
+	})
 	if err := store.Save(ctx, session); err != nil {
 		b.Skipf("Skipping Memcached benchmark: %v", err)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := store.Get(ctx, session.ID)
+		_, err := store.Get(ctx, session.ID())
 		if err != nil {
 			b.Fatalf("failed to get: %v", err)
 		}
@@ -393,12 +394,12 @@ func BenchmarkMemcachedStore_SaveParallel(b *testing.B) {
 	ctx := context.Background()
 
 	// Check if memcached is available
-	testSession := &Session{
+	testSession := RestoreSession(SessionSnapshot{
 		ID:        "bench-mc-parallel-test",
 		Values:    map[string]any{"test": true},
 		CreatedAt: time.Now(),
 		ExpiresAt: time.Now().Add(time.Hour),
-	}
+	})
 	if err := store.Save(ctx, testSession); err != nil {
 		b.Skipf("Skipping Memcached benchmark: %v", err)
 	}
@@ -411,12 +412,12 @@ func BenchmarkMemcachedStore_SaveParallel(b *testing.B) {
 			if err != nil {
 				b.Fatalf("failed to generate ID: %v", err)
 			}
-			session := &Session{
+			session := RestoreSession(SessionSnapshot{
 				ID:        id,
 				Values:    map[string]any{"key": "value", "count": i},
 				CreatedAt: time.Now(),
 				ExpiresAt: time.Now().Add(time.Hour),
-			}
+			})
 			if err := store.Save(ctx, session); err != nil {
 				b.Errorf("failed to save: %v", err)
 			}
@@ -436,12 +437,12 @@ func BenchmarkSQLiteStore_GetParallel(b *testing.B) {
 	defer store.Close()
 
 	ctx := context.Background()
-	session := &Session{
+	session := RestoreSession(SessionSnapshot{
 		ID:        "bench-get-session",
 		Values:    map[string]any{"key": "value"},
 		CreatedAt: time.Now(),
 		ExpiresAt: time.Now().Add(time.Hour),
-	}
+	})
 	if err := store.Save(ctx, session); err != nil {
 		b.Fatalf("failed to save: %v", err)
 	}
@@ -449,7 +450,7 @@ func BenchmarkSQLiteStore_GetParallel(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			_, err := store.Get(ctx, session.ID)
+			_, err := store.Get(ctx, session.ID())
 			if err != nil {
 				b.Errorf("failed to get: %v", err)
 			}
@@ -462,7 +463,7 @@ func BenchmarkManager_Save_Empty(b *testing.B) {
 	if err != nil {
 		b.Fatalf("failed to create store: %v", err)
 	}
-	mgr := NewManager(Config{
+	mgr := MustNewManager(Config{
 		Store:           store,
 		MaxSessionBytes: 4096, // Enable size check to trigger encoding logic
 	})

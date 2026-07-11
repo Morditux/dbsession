@@ -97,20 +97,21 @@ func (s *MemcachedStore) Get(ctx context.Context, id string) (*Session, error) {
 		env.Values = make(map[string]any)
 	}
 
-	return &Session{
+	return RestoreSession(SessionSnapshot{
 		ID:        id,
 		Values:    env.Values,
 		CreatedAt: env.CreatedAt,
 		ExpiresAt: env.ExpiresAt,
-	}, nil
+	}), nil
 }
 
 // Save stores a session in Memcached.
 func (s *MemcachedStore) Save(ctx context.Context, session *Session) error {
+	state := session.stateSnapshot()
 	// Use the session deadline when available, otherwise derive one from the
 	// store TTL. Passing zero accidentally would make the item never expire.
 	now := time.Now()
-	expiresAt := session.ExpiresAt
+	expiresAt := state.expiresAt
 	if expiresAt.IsZero() {
 		expiresAt = now.Add(s.ttl)
 	}
@@ -124,8 +125,8 @@ func (s *MemcachedStore) Save(ctx context.Context, session *Session) error {
 	defer PutBuffer(buf)
 
 	env := sessionEnvelope{
-		Values:    session.Values,
-		CreatedAt: session.CreatedAt,
+		Values:    state.values,
+		CreatedAt: state.createdAt,
 		ExpiresAt: expiresAt,
 	}
 	if err := gob.NewEncoder(buf).Encode(env); err != nil {
@@ -137,7 +138,7 @@ func (s *MemcachedStore) Save(ctx context.Context, session *Session) error {
 	}
 
 	err = s.client.Set(&memcache.Item{
-		Key:        session.ID,
+		Key:        state.id,
 		Value:      buf.Bytes(),
 		Expiration: expiration,
 	})

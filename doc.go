@@ -31,7 +31,7 @@ To use dbsession, first initialize a storage backend (Store) and then create a M
 	// Create session manager
 	httpOnly := true
 	secure := true
-	mgr := dbsession.NewManager(dbsession.Config{
+	mgr, err := dbsession.NewManager(dbsession.Config{
 		Store:           store,
 		TTL:             24 * time.Hour,
 		CookieName:      "session_id",
@@ -39,6 +39,9 @@ To use dbsession, first initialize a storage backend (Store) and then create a M
 		Secure:          &secure,
 		CleanupInterval: 10 * time.Minute,
 	})
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer mgr.Close()
 
 By default, Manager owns its Store: Manager.Close stops the cleanup worker and
@@ -46,11 +49,17 @@ then closes the Store. Applications that share one Store between managers must
 set Config.LeaveStoreOpen on each manager and close the Store themselves after
 all managers have stopped. CloseContext can be used to bound shutdown waiting.
 
+NewManager validates configuration before starting background work and returns
+an error for unsafe durations, invalid cookie scope, unsupported SameSite modes,
+nil stores, and negative size limits. MustNewManager is available for programs
+that treat invalid startup configuration as unrecoverable. Set DisableCleanup
+instead of using a sentinel cleanup duration when expiration is managed elsewhere.
+
 	// Use in HTTP handlers
 	http.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
 		session, _ := mgr.Get(r)
-		session.Values["authenticated"] = true
-		session.Values["user_id"] = 42
+		session.Set("authenticated", true)
+		session.Set("user_id", 42)
 		if err := mgr.Save(w, r, session); err != nil {
 			http.Error(w, "Failed to save session", http.StatusInternalServerError)
 		}
@@ -64,7 +73,12 @@ Store Implementations:
 
 Thread Safety:
 
-The Manager and Store implementations are safe for concurrent use by multiple goroutines.
-Individual Session objects are not thread-safe and should be handled within the scope of a single request.
+Manager, the built-in Store implementations, and Session methods are safe for
+concurrent use. Session fields are private; use its accessors and mutation
+methods. Persistence operations capture a point-in-time shallow snapshot and
+are serialized per Session. Mutable values stored inside the values map remain
+shared and must be copied or externally synchronized before concurrent mutation.
+Session values must not be copied after first use. Custom Store implementations
+can use Session.Snapshot and RestoreSession for persistence.
 */
 package dbsession

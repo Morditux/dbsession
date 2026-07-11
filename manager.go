@@ -8,9 +8,12 @@ import (
 	"encoding/gob"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	mrand "math/rand/v2"
 	"net/http"
+	"reflect"
+	"strings"
 	"sync"
 	"time"
 )
@@ -21,6 +24,10 @@ var (
 
 	// ErrInvalidSessionID is returned when the session ID format is invalid.
 	ErrInvalidSessionID = errors.New("invalid session id")
+
+	// ErrInvalidConfig is returned when manager configuration is unsafe or
+	// cannot be represented correctly by HTTP cookies.
+	ErrInvalidConfig = errors.New("invalid manager config")
 )
 
 type Manager struct {
@@ -30,6 +37,7 @@ type Manager struct {
 	cookiePath      string
 	cookieDomain    string
 	cleanup         time.Duration
+	disableCleanup  bool
 	stopChan        chan struct{}
 	workerDone      chan struct{}
 	stopOnce        sync.Once
@@ -49,6 +57,9 @@ type Config struct {
 	CookiePath      string
 	CookieDomain    string
 	CleanupInterval time.Duration
+	// DisableCleanup prevents the manager from starting its cleanup goroutine.
+	// Use this for stores with native expiration or externally managed cleanup.
+	DisableCleanup  bool
 	HttpOnly        *bool
 	Secure          *bool
 	SameSite        http.SameSite
@@ -59,7 +70,10 @@ type Config struct {
 	LeaveStoreOpen bool
 }
 
-func NewManager(cfg Config) *Manager {
+// NewManager validates cfg before constructing a Manager or starting its
+// cleanup goroutine. A zero TTL selects the 24-hour default; explicit TTLs must
+// be at least one second and fit in http.Cookie.MaxAge on the target platform.
+func NewManager(cfg Config) (*Manager, error) {
 	if cfg.CookieName == "" {
 		cfg.CookieName = "session_id"
 	}
@@ -72,6 +86,9 @@ func NewManager(cfg Config) *Manager {
 	if cfg.CleanupInterval == 0 {
 		cfg.CleanupInterval = 10 * time.Minute
 	}
+	if err := validateManagerConfig(cfg); err != nil {
+		return nil, err
+	}
 
 	m := &Manager{
 		store:           cfg.Store,
@@ -80,6 +97,7 @@ func NewManager(cfg Config) *Manager {
 		cookiePath:      cfg.CookiePath,
 		cookieDomain:    cfg.CookieDomain,
 		cleanup:         cfg.CleanupInterval,
+		disableCleanup:  cfg.DisableCleanup,
 		stopChan:        make(chan struct{}),
 		workerDone:      make(chan struct{}),
 		leaveStoreOpen:  cfg.LeaveStoreOpen,
@@ -105,9 +123,81 @@ func NewManager(cfg Config) *Manager {
 		m.secure = &secure
 	}
 
-	go m.cleanupWorker()
+	if m.disableCleanup {
+		close(m.workerDone)
+	} else {
+		go m.cleanupWorker()
+	}
 
+	return m, nil
+}
+
+// MustNewManager is a convenience wrapper for applications that treat invalid
+// startup configuration as unrecoverable. It panics if NewManager fails.
+func MustNewManager(cfg Config) *Manager {
+	m, err := NewManager(cfg)
+	if err != nil {
+		panic(err)
+	}
 	return m
+}
+
+func validateManagerConfig(cfg Config) error {
+	if isNilStore(cfg.Store) {
+		return fmt.Errorf("%w: Store must not be nil", ErrInvalidConfig)
+	}
+	if cfg.TTL < time.Second {
+		return fmt.Errorf("%w: TTL must be at least one second", ErrInvalidConfig)
+	}
+	maxCookieAgeSeconds := int64(int(^uint(0) >> 1))
+	if int64(cfg.TTL/time.Second) > maxCookieAgeSeconds {
+		return fmt.Errorf("%w: TTL exceeds Cookie.MaxAge on this platform", ErrInvalidConfig)
+	}
+	if cfg.CleanupInterval < 0 {
+		return fmt.Errorf("%w: CleanupInterval must not be negative", ErrInvalidConfig)
+	}
+	if !cfg.DisableCleanup && cfg.CleanupInterval <= 0 {
+		return fmt.Errorf("%w: CleanupInterval must be positive when cleanup is enabled", ErrInvalidConfig)
+	}
+	if cfg.MaxSessionBytes < 0 {
+		return fmt.Errorf("%w: MaxSessionBytes must not be negative", ErrInvalidConfig)
+	}
+	if cfg.SameSite < 0 || cfg.SameSite > http.SameSiteNoneMode {
+		return fmt.Errorf("%w: unsupported SameSite value %d", ErrInvalidConfig, cfg.SameSite)
+	}
+	if !strings.HasPrefix(cfg.CookiePath, "/") {
+		return fmt.Errorf("%w: CookiePath must start with '/'", ErrInvalidConfig)
+	}
+	if err := (&http.Cookie{
+		Name:     cfg.CookieName,
+		Path:     cfg.CookiePath,
+		Domain:   cfg.CookieDomain,
+		SameSite: cfg.SameSite,
+	}).Valid(); err != nil {
+		return fmt.Errorf("%w: invalid cookie scope: %v", ErrInvalidConfig, err)
+	}
+	secureEnabled := cfg.Secure != nil && *cfg.Secure
+	if strings.HasPrefix(cfg.CookieName, "__Secure-") && !secureEnabled {
+		return fmt.Errorf("%w: __Secure- cookies require Secure=true", ErrInvalidConfig)
+	}
+	if strings.HasPrefix(cfg.CookieName, "__Host-") &&
+		(!secureEnabled || cfg.CookiePath != "/" || cfg.CookieDomain != "") {
+		return fmt.Errorf("%w: __Host- cookies require Secure=true, Path=/, and no Domain", ErrInvalidConfig)
+	}
+	return nil
+}
+
+func isNilStore(store Store) bool {
+	if store == nil {
+		return true
+	}
+	v := reflect.ValueOf(store)
+	switch v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Ptr, reflect.Slice:
+		return v.IsNil()
+	default:
+		return false
+	}
 }
 
 func (m *Manager) cleanupWorker() {
@@ -188,7 +278,7 @@ func (m *Manager) Get(r *http.Request) (*Session, error) {
 	// Security: Enforce expiration check at the Manager level.
 	// Some stores (like Memcached) might rely on lazy expiration or external TTLs,
 	// which can be unreliable or bypassed. We must ensure we never return an expired session.
-	if session.ExpiresAt.Before(time.Now()) {
+	if session.ExpiresAt().Before(time.Now()) {
 		return m.New(), nil
 	}
 
@@ -196,26 +286,32 @@ func (m *Manager) Get(r *http.Request) (*Session, error) {
 }
 
 func (m *Manager) Save(w http.ResponseWriter, r *http.Request, s *Session) error {
-	// Acquire lock to prevent race conditions with concurrent Session.Set/Delete calls.
-	// This ensures that s.Values and s.encoded are accessed consistently.
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
 
-	if !isValidID(s.ID) {
+	state := s.stateSnapshot()
+	if !isValidID(state.id) {
 		return ErrInvalidSessionID
 	}
+	state.expiresAt = time.Now().Add(m.ttl)
 
-	s.ExpiresAt = time.Now().Add(m.ttl)
+	if err := m.saveState(w, r, state); err != nil {
+		return err
+	}
+	s.setIdentityAndExpiry(state.id, state.expiresAt)
+	return nil
+}
 
+func (m *Manager) saveState(w http.ResponseWriter, r *http.Request, state sessionState) error {
 	// Check session size if limit is configured
 	// Optimization: Skip encoding if the session is empty.
 	// This saves allocations and CPU cycles for new/empty sessions.
-	if m.maxSessionBytes > 0 && len(s.Values) > 0 {
+	if m.maxSessionBytes > 0 && len(state.values) > 0 {
 		buf := bufferPool.Get().(*bytes.Buffer)
 		buf.Reset()
 		defer PutBuffer(buf)
 
-		if err := gob.NewEncoder(buf).Encode(s.Values); err != nil {
+		if err := gob.NewEncoder(buf).Encode(state.values); err != nil {
 			return err
 		}
 
@@ -223,15 +319,14 @@ func (m *Manager) Save(w http.ResponseWriter, r *http.Request, s *Session) error
 			return ErrSessionTooLarge
 		}
 
-		// Optimization: Store the encoded data in the session so the store doesn't have to re-encode it.
+		// Optimization: Store the encoded data in an immutable persistence
+		// snapshot so SQL stores do not have to re-encode it.
 		// Note: We use the buffer's bytes directly. The Store must consume it before we return from Save.
-		// Since store.Save is synchronous, this is safe, provided we clear s.encoded before returning.
-		s.encoded = buf.Bytes()
+		// Since store.Save is synchronous, this is safe until PutBuffer runs.
+		state.encoded = buf.Bytes()
 	}
 
-	err := m.store.Save(r.Context(), s)
-	s.encoded = nil // Clear the cache to prevent use-after-free if buffer is reused
-	if err != nil {
+	if err := m.store.Save(r.Context(), sessionFromState(state)); err != nil {
 		return err
 	}
 
@@ -242,10 +337,10 @@ func (m *Manager) Save(w http.ResponseWriter, r *http.Request, s *Session) error
 
 	http.SetCookie(w, &http.Cookie{
 		Name:     m.cookie,
-		Value:    s.ID,
+		Value:    state.id,
 		Path:     m.cookiePath,
 		Domain:   m.cookieDomain,
-		Expires:  s.ExpiresAt,
+		Expires:  state.expiresAt,
 		MaxAge:   int(m.ttl.Seconds()),
 		HttpOnly: m.httpOnly,
 		Secure:   secure,
@@ -259,15 +354,18 @@ func (m *Manager) Save(w http.ResponseWriter, r *http.Request, s *Session) error
 // It creates a new session ID, saves the session with the new ID,
 // and removes the old session from the store.
 func (m *Manager) Regenerate(w http.ResponseWriter, r *http.Request, s *Session) error {
-	oldID := s.ID
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+
+	state := s.stateSnapshot()
+	oldID := state.id
 	newID, err := generateID()
 	if err != nil {
 		return err
 	}
-	s.ID = newID
-
-	if err := m.Save(w, r, s); err != nil {
-		s.ID = oldID // Restore old ID on failure
+	state.id = newID
+	state.expiresAt = time.Now().Add(m.ttl)
+	if err := m.saveState(w, r, state); err != nil {
 		return err
 	}
 
@@ -301,10 +399,15 @@ func (m *Manager) Regenerate(w http.ResponseWriter, r *http.Request, s *Session)
 		return err
 	}
 
+	s.setIdentityAndExpiry(newID, state.expiresAt)
 	return nil
 }
 
 func (m *Manager) Destroy(w http.ResponseWriter, r *http.Request, s *Session) error {
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+	state := s.stateSnapshot()
+
 	// Always clear the cookie, even if store deletion fails.
 	// This ensures the client side is logged out ("fail safe" for the user).
 	secure := r.TLS != nil
@@ -328,7 +431,7 @@ func (m *Manager) Destroy(w http.ResponseWriter, r *http.Request, s *Session) er
 	// is wiped from memory (Defense in Depth).
 	defer s.Clear()
 
-	if err := m.store.Delete(r.Context(), s.ID); err != nil {
+	if err := m.store.Delete(r.Context(), state.id); err != nil {
 		return err
 	}
 
@@ -340,12 +443,13 @@ func (m *Manager) New() *Session {
 	if err != nil {
 		panic(err)
 	}
-	return &Session{
+	now := time.Now()
+	return RestoreSession(SessionSnapshot{
 		ID:        id,
 		Values:    make(map[string]any),
-		CreatedAt: time.Now(),
-		ExpiresAt: time.Now().Add(m.ttl),
-	}
+		CreatedAt: now,
+		ExpiresAt: now.Add(m.ttl),
+	})
 }
 
 // rngPool reuses *math/rand/v2.Rand instances to amortize the cost of

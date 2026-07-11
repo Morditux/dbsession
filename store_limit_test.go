@@ -32,12 +32,12 @@ func TestStore_MaxSessionBytes(t *testing.T) {
 		largeData[i] = 'A'
 	}
 
-	session := &Session{
+	session := RestoreSession(SessionSnapshot{
 		ID:        "large-session",
 		Values:    map[string]any{"data": string(largeData)},
 		CreatedAt: time.Now(),
 		ExpiresAt: time.Now().Add(time.Hour),
-	}
+	})
 
 	if err := unlimitedStore.Save(ctx, session); err != nil {
 		t.Fatalf("failed to save large session: %v", err)
@@ -57,7 +57,7 @@ func TestStore_MaxSessionBytes(t *testing.T) {
 	defer limitedStore.Close()
 
 	// 3. Attempt to Get the session
-	_, err = limitedStore.Get(ctx, session.ID)
+	_, err = limitedStore.Get(ctx, session.ID())
 	if err == nil {
 		t.Fatal("expected error when getting too large session, got nil")
 	}
@@ -67,8 +67,6 @@ func TestStore_MaxSessionBytes(t *testing.T) {
 	}
 
 	// 4. Attempt to Save a large session directly using limited store
-	// Ensure session.encoded is nil (it should be, as we haven't used Manager)
-	session.encoded = nil
 	if err := limitedStore.Save(ctx, session); err == nil {
 		t.Fatal("expected error when saving too large session, got nil")
 	} else if !errors.Is(err, ErrSessionTooLarge) {
@@ -90,12 +88,12 @@ func TestMemcachedStore_MaxSessionBytes(t *testing.T) {
 		largeData[i] = 'A'
 	}
 
-	session := &Session{
+	session := RestoreSession(SessionSnapshot{
 		ID:        "large-memcached-session",
 		Values:    map[string]any{"data": string(largeData)},
 		CreatedAt: time.Now(),
 		ExpiresAt: time.Now().Add(time.Hour),
-	}
+	})
 
 	// 1. Create limited store
 	store := NewMemcachedStoreWithConfig(MemcachedConfig{
@@ -122,12 +120,12 @@ func TestMemcachedStore_MaxSessionBytes(t *testing.T) {
 	}
 
 	// Now try to Get with limited store
-	if _, err := store.Get(ctx, session.ID); err == nil {
+	if _, err := store.Get(ctx, session.ID()); err == nil {
 		t.Fatal("expected error when getting too large session, got nil")
 	} else if !errors.Is(err, ErrSessionTooLarge) {
 		t.Errorf("expected ErrSessionTooLarge on Get, got: %v", err)
 	}
 
 	// Cleanup
-	_ = unlimitedStore.Delete(ctx, session.ID)
+	_ = unlimitedStore.Delete(ctx, session.ID())
 }

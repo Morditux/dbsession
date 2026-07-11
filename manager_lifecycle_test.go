@@ -39,7 +39,7 @@ func (s *lifecycleStore) Close() error {
 }
 
 func newLifecycleManager(store Store, leaveStoreOpen bool) *Manager {
-	return NewManager(Config{
+	return MustNewManager(Config{
 		Store:           store,
 		CleanupInterval: time.Millisecond,
 		LeaveStoreOpen:  leaveStoreOpen,

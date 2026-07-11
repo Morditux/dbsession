@@ -21,17 +21,17 @@ func TestRegenerate_RandFailure(t *testing.T) {
 
 	// Setup manager with mock store
 	store := &MockStore{}
-	mgr := NewManager(Config{Store: store})
+	mgr := MustNewManager(Config{Store: store})
 	defer mgr.Close()
 
 	// Create a session MANUALLY to avoid calling generateID (which uses rand)
 	// or create it before swapping the reader.
-	s := &Session{
+	s := RestoreSession(SessionSnapshot{
 		ID:        "valid-initial-id",
 		Values:    make(map[string]any),
 		CreatedAt: time.Now(),
 		ExpiresAt: time.Now().Add(time.Hour),
-	}
+	})
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/", nil)

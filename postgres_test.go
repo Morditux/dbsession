@@ -27,12 +27,12 @@ func TestPostgreSQLStore(t *testing.T) {
 	defer store.Close()
 
 	ctx := context.Background()
-	s := &Session{
+	s := RestoreSession(SessionSnapshot{
 		ID:        "test-pg-session",
 		Values:    map[string]any{"foo": "bar", "count": 42},
 		CreatedAt: time.Now(),
 		ExpiresAt: time.Now().Add(time.Hour),
-	}
+	})
 
 	// Test Save
 	if err := store.Save(ctx, s); err != nil {
@@ -40,25 +40,26 @@ func TestPostgreSQLStore(t *testing.T) {
 	}
 
 	// Test Get
-	got, err := store.Get(ctx, s.ID)
+	got, err := store.Get(ctx, s.ID())
 	if err != nil {
 		t.Errorf("failed to get session: %v", err)
 	}
 	if got == nil {
 		t.Fatal("session not found")
 	}
-	if got.ID != s.ID {
-		t.Errorf("expected ID %s, got %s", s.ID, got.ID)
+	if got.ID() != s.ID() {
+		t.Errorf("expected ID %s, got %s", s.ID(), got.ID())
 	}
-	if got.Values["foo"] != "bar" || got.Values["count"].(int) != 42 {
-		t.Errorf("unexpected values: %v", got.Values)
+	values := got.ValuesSnapshot()
+	if values["foo"] != "bar" || values["count"].(int) != 42 {
+		t.Errorf("unexpected values: %v", values)
 	}
 
 	// Test Delete
-	if err := store.Delete(ctx, s.ID); err != nil {
+	if err := store.Delete(ctx, s.ID()); err != nil {
 		t.Errorf("failed to delete session: %v", err)
 	}
-	got, err = store.Get(ctx, s.ID)
+	got, err = store.Get(ctx, s.ID())
 	if err != nil {
 		t.Errorf("failed to get session after delete: %v", err)
 	}
@@ -67,12 +68,12 @@ func TestPostgreSQLStore(t *testing.T) {
 	}
 
 	// Test Cleanup
-	expired := &Session{
+	expired := RestoreSession(SessionSnapshot{
 		ID:        "expired-pg-session",
 		Values:    map[string]any{"key": "val"},
 		CreatedAt: time.Now().Add(-2 * time.Hour),
 		ExpiresAt: time.Now().Add(-time.Hour),
-	}
+	})
 	if err := store.Save(ctx, expired); err != nil {
 		t.Errorf("failed to save expired session: %v", err)
 	}
@@ -81,7 +82,7 @@ func TestPostgreSQLStore(t *testing.T) {
 		t.Errorf("failed cleanup: %v", err)
 	}
 
-	got, err = store.Get(ctx, expired.ID)
+	got, err = store.Get(ctx, expired.ID())
 	if err != nil {
 		t.Errorf("failed to get after cleanup: %v", err)
 	}
@@ -100,12 +101,12 @@ func TestPostgreSQLStoreEmptySession(t *testing.T) {
 	defer store.Close()
 
 	ctx := context.Background()
-	s := &Session{
+	s := RestoreSession(SessionSnapshot{
 		ID:        "test-pg-empty-session",
 		Values:    map[string]any{},
 		CreatedAt: time.Now(),
 		ExpiresAt: time.Now().Add(time.Hour),
-	}
+	})
 
 	// Test Save empty session
 	if err := store.Save(ctx, s); err != nil {
@@ -113,22 +114,22 @@ func TestPostgreSQLStoreEmptySession(t *testing.T) {
 	}
 
 	// Test Get empty session
-	got, err := store.Get(ctx, s.ID)
+	got, err := store.Get(ctx, s.ID())
 	if err != nil {
 		t.Errorf("failed to get empty session: %v", err)
 	}
 	if got == nil {
 		t.Fatal("empty session not found")
 	}
-	if got.ID != s.ID {
-		t.Errorf("expected ID %s, got %s", s.ID, got.ID)
+	if got.ID() != s.ID() {
+		t.Errorf("expected ID %s, got %s", s.ID(), got.ID())
 	}
-	if len(got.Values) != 0 {
-		t.Errorf("expected empty values, got %v", got.Values)
+	if values := got.ValuesSnapshot(); len(values) != 0 {
+		t.Errorf("expected empty values, got %v", values)
 	}
 
 	// Clean up
-	if err := store.Delete(ctx, s.ID); err != nil {
+	if err := store.Delete(ctx, s.ID()); err != nil {
 		t.Errorf("failed to delete session: %v", err)
 	}
 }
@@ -148,12 +149,12 @@ func BenchmarkPostgreSQLStore_Save(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		session := &Session{
+		session := RestoreSession(SessionSnapshot{
 			ID:        "bench-pg-session",
 			Values:    map[string]any{"key": "value", "count": i},
 			CreatedAt: time.Now(),
 			ExpiresAt: time.Now().Add(time.Hour),
-		}
+		})
 		if err := store.Save(ctx, session); err != nil {
 			b.Fatalf("failed to save: %v", err)
 		}
@@ -170,19 +171,19 @@ func BenchmarkPostgreSQLStore_Get(b *testing.B) {
 	defer store.Close()
 
 	ctx := context.Background()
-	session := &Session{
+	session := RestoreSession(SessionSnapshot{
 		ID:        "bench-pg-get-session",
 		Values:    map[string]any{"key": "value"},
 		CreatedAt: time.Now(),
 		ExpiresAt: time.Now().Add(time.Hour),
-	}
+	})
 	if err := store.Save(ctx, session); err != nil {
 		b.Fatalf("failed to save: %v", err)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := store.Get(ctx, session.ID)
+		_, err := store.Get(ctx, session.ID())
 		if err != nil {
 			b.Fatalf("failed to get: %v", err)
 		}
@@ -208,12 +209,12 @@ func BenchmarkPostgreSQLStore_SaveParallel(b *testing.B) {
 			if err != nil {
 				b.Fatalf("failed to generate ID: %v", err)
 			}
-			session := &Session{
+			session := RestoreSession(SessionSnapshot{
 				ID:        id,
 				Values:    map[string]any{"key": "value", "count": i},
 				CreatedAt: time.Now(),
 				ExpiresAt: time.Now().Add(time.Hour),
-			}
+			})
 			if err := store.Save(ctx, session); err != nil {
 				b.Errorf("failed to save: %v", err)
 			}
@@ -232,12 +233,12 @@ func BenchmarkPostgreSQLStore_GetParallel(b *testing.B) {
 	defer store.Close()
 
 	ctx := context.Background()
-	session := &Session{
+	session := RestoreSession(SessionSnapshot{
 		ID:        "bench-pg-get-parallel-session",
 		Values:    map[string]any{"key": "value"},
 		CreatedAt: time.Now(),
 		ExpiresAt: time.Now().Add(time.Hour),
-	}
+	})
 	if err := store.Save(ctx, session); err != nil {
 		b.Fatalf("failed to save: %v", err)
 	}
@@ -245,7 +246,7 @@ func BenchmarkPostgreSQLStore_GetParallel(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			_, err := store.Get(ctx, session.ID)
+			_, err := store.Get(ctx, session.ID())
 			if err != nil {
 				b.Errorf("failed to get: %v", err)
 			}

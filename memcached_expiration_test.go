@@ -104,7 +104,7 @@ func TestMemcachedExpiration(t *testing.T) {
 func TestMemcachedStoreSaveRejectsInvalidFallbackTTL(t *testing.T) {
 	for _, ttl := range []time.Duration{0, -time.Second, time.Duration(1<<63 - 1)} {
 		store := NewMemcachedStore(ttl, "127.0.0.1:11211")
-		session := &Session{ID: "test-invalid-expiration"}
+		session := RestoreSession(SessionSnapshot{ID: "test-invalid-expiration"})
 
 		err := store.Save(context.Background(), session)
 		if !errors.Is(err, ErrInvalidMemcachedExpiration) {

@@ -183,28 +183,29 @@ func (s *SQLiteStore) Get(ctx context.Context, id string) (*Session, error) {
 		values = make(map[string]any)
 	}
 
-	return &Session{
+	return RestoreSession(SessionSnapshot{
 		ID:        id,
 		Values:    values,
 		CreatedAt: createdAt,
 		ExpiresAt: expiresAt,
-	}, nil
+	}), nil
 }
 
 func (s *SQLiteStore) Save(ctx context.Context, session *Session) error {
+	state := session.stateSnapshot()
 	var blob []byte
 
 	// Optimize for empty sessions: store NULL instead of Gob encoded empty map.
 	// This saves allocations and CPU cycles for sessions that are just created but not populated.
-	if len(session.Values) > 0 {
-		if session.encoded != nil {
-			blob = session.encoded
+	if len(state.values) > 0 {
+		if state.encoded != nil {
+			blob = state.encoded
 		} else {
 			buf := bufferPool.Get().(*bytes.Buffer)
 			buf.Reset()
 			defer PutBuffer(buf)
 
-			if err := gob.NewEncoder(buf).Encode(session.Values); err != nil {
+			if err := gob.NewEncoder(buf).Encode(state.values); err != nil {
 				return fmt.Errorf("failed to encode session data: %w", err)
 			}
 			blob = buf.Bytes()
@@ -217,7 +218,7 @@ func (s *SQLiteStore) Save(ctx context.Context, session *Session) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.saveStmt.ExecContext(ctx, session.ID, blob, session.CreatedAt, session.ExpiresAt)
+	_, err := s.saveStmt.ExecContext(ctx, state.id, blob, state.createdAt, state.expiresAt)
 
 	if err != nil {
 		return fmt.Errorf("failed to save session: %w", err)

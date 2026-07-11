@@ -14,7 +14,7 @@ func TestSecurityConfig(t *testing.T) {
 	store := &MockStore{}
 
 	t.Run("Default Security Settings", func(t *testing.T) {
-		mgr := NewManager(Config{Store: store})
+		mgr := MustNewManager(Config{Store: store})
 		defer mgr.Close()
 
 		w := httptest.NewRecorder()
@@ -51,7 +51,7 @@ func TestSecurityConfig(t *testing.T) {
 	t.Run("Custom Security Settings", func(t *testing.T) {
 		httpOnly := false
 		secure := true
-		mgr := NewManager(Config{
+		mgr := MustNewManager(Config{
 			Store:    store,
 			HttpOnly: &httpOnly,
 			Secure:   &secure,
@@ -82,7 +82,7 @@ func TestSecurityConfig(t *testing.T) {
 	})
 
 	t.Run("Cookie Scope", func(t *testing.T) {
-		mgr := NewManager(Config{
+		mgr := MustNewManager(Config{
 			Store:        store,
 			CookiePath:   "/app",
 			CookieDomain: "example.com",
@@ -123,7 +123,7 @@ func TestSecurityConfig(t *testing.T) {
 
 	t.Run("Destroy Respects Secure Setting", func(t *testing.T) {
 		secure := true
-		mgr := NewManager(Config{
+		mgr := MustNewManager(Config{
 			Store:  store,
 			Secure: &secure,
 		})
@@ -162,7 +162,7 @@ func TestSecurityConfig(t *testing.T) {
 		// Case: SameSite=None, Secure=nil (default, auto-detect)
 		// Since request is HTTP, auto-detect would usually result in Secure=false.
 		// But because SameSite=None, we MUST enforce Secure=true.
-		mgr := NewManager(Config{
+		mgr := MustNewManager(Config{
 			Store:    store,
 			SameSite: http.SameSiteNoneMode,
 		})
@@ -189,7 +189,7 @@ func TestSecurityConfig(t *testing.T) {
 
 	t.Run("Max Session Size Limit", func(t *testing.T) {
 		limit := 10 // Very small limit (bytes)
-		mgr := NewManager(Config{
+		mgr := MustNewManager(Config{
 			Store:           store,
 			MaxSessionBytes: limit,
 		})
@@ -231,13 +231,13 @@ func (m *MockStoreFailDelete) Delete(ctx context.Context, id string) error {
 
 func TestRegenerate_FailSecure(t *testing.T) {
 	store := &MockStoreFailDelete{}
-	mgr := NewManager(Config{Store: store})
+	mgr := MustNewManager(Config{Store: store})
 	defer mgr.Close()
 
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("GET", "/", nil)
 	s := mgr.New()
-	s.ID = "old-id"
+	s.setIdentityAndExpiry("old-id", s.ExpiresAt())
 
 	// Regenerate should fail if Delete fails
 	err := mgr.Regenerate(w, r, s)
@@ -264,7 +264,7 @@ func TestRegenerate_FailSecure(t *testing.T) {
 func TestSave_ValidatesSessionID(t *testing.T) {
 	// Mock store
 	store := &MockStore{}
-	mgr := NewManager(Config{Store: store})
+	mgr := MustNewManager(Config{Store: store})
 	defer mgr.Close()
 
 	w := httptest.NewRecorder()
@@ -272,7 +272,7 @@ func TestSave_ValidatesSessionID(t *testing.T) {
 
 	t.Run("Invalid ID rejected", func(t *testing.T) {
 		s := mgr.New()
-		s.ID = "bad-id" // Not 32 hex chars
+		s.setIdentityAndExpiry("bad-id", s.ExpiresAt()) // Not 32 hex chars
 
 		err := mgr.Save(w, r, s)
 		if err == nil {
@@ -295,7 +295,7 @@ func TestSave_ValidatesSessionID(t *testing.T) {
 
 func TestDestroy_ClearsMemory(t *testing.T) {
 	store := &MockStore{}
-	mgr := NewManager(Config{Store: store})
+	mgr := MustNewManager(Config{Store: store})
 	defer mgr.Close()
 
 	w := httptest.NewRecorder()
@@ -315,10 +315,8 @@ func TestDestroy_ClearsMemory(t *testing.T) {
 	}
 
 	// Verify internal map is nil or empty
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if len(s.Values) > 0 {
-		t.Errorf("Expected Values map to be empty/nil, got len %d", len(s.Values))
+	if values := s.ValuesSnapshot(); len(values) > 0 {
+		t.Errorf("Expected Values map to be empty/nil, got len %d", len(values))
 	}
 }
 
@@ -327,17 +325,17 @@ type MockStoreExpired struct {
 }
 
 func (m *MockStoreExpired) Get(ctx context.Context, id string) (*Session, error) {
-	return &Session{
+	return RestoreSession(SessionSnapshot{
 		ID:        "expired-session-id",
 		Values:    map[string]any{"key": "value"},
 		CreatedAt: time.Now().Add(-2 * time.Hour),
 		ExpiresAt: time.Now().Add(-1 * time.Hour),
-	}, nil
+	}), nil
 }
 
 func TestManager_EnforcesExpiry(t *testing.T) {
 	store := &MockStoreExpired{}
-	mgr := NewManager(Config{Store: store})
+	mgr := MustNewManager(Config{Store: store})
 	defer mgr.Close()
 
 	// w is not needed as we don't write response
@@ -350,11 +348,11 @@ func TestManager_EnforcesExpiry(t *testing.T) {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	if session.ID == "expired-session-id" {
+	if session.ID() == "expired-session-id" {
 		t.Error("Manager returned an expired session! It should have returned a new one.")
 	}
 
-	if len(session.Values) > 0 {
+	if len(session.ValuesSnapshot()) > 0 {
 		t.Error("Manager returned a session with values! It should be empty.")
 	}
 }
@@ -362,7 +360,7 @@ func TestManager_EnforcesExpiry(t *testing.T) {
 func TestDestroy_ClearsMemory_OnError(t *testing.T) {
 	// Setup store that fails on Delete
 	store := &MockStoreFailDelete{}
-	mgr := NewManager(Config{Store: store})
+	mgr := MustNewManager(Config{Store: store})
 	defer mgr.Close()
 
 	w := httptest.NewRecorder()
@@ -383,9 +381,7 @@ func TestDestroy_ClearsMemory_OnError(t *testing.T) {
 	}
 
 	// Verify internal map
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if len(s.Values) > 0 {
-		t.Errorf("Vulnerability: Values map not empty, len %d", len(s.Values))
+	if values := s.ValuesSnapshot(); len(values) > 0 {
+		t.Errorf("Vulnerability: Values map not empty, len %d", len(values))
 	}
 }
