@@ -28,8 +28,6 @@ To use dbsession, first initialize a storage backend (Store) and then create a M
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer store.Close()
-
 	// Create session manager
 	httpOnly := true
 	secure := true
@@ -42,6 +40,11 @@ To use dbsession, first initialize a storage backend (Store) and then create a M
 		CleanupInterval: 10 * time.Minute,
 	})
 	defer mgr.Close()
+
+By default, Manager owns its Store: Manager.Close stops the cleanup worker and
+then closes the Store. Applications that share one Store between managers must
+set Config.LeaveStoreOpen on each manager and close the Store themselves after
+all managers have stopped. CloseContext can be used to bound shutdown waiting.
 
 	// Use in HTTP handlers
 	http.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {

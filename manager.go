@@ -31,6 +31,11 @@ type Manager struct {
 	cookieDomain    string
 	cleanup         time.Duration
 	stopChan        chan struct{}
+	workerDone      chan struct{}
+	stopOnce        sync.Once
+	storeCloseOnce  sync.Once
+	storeCloseErr   error
+	leaveStoreOpen  bool
 	httpOnly        bool
 	secure          *bool
 	sameSite        http.SameSite
@@ -48,6 +53,10 @@ type Config struct {
 	Secure          *bool
 	SameSite        http.SameSite
 	MaxSessionBytes int // Maximum size in bytes of the serialized session data. 0 means unlimited.
+	// LeaveStoreOpen transfers store ownership to the caller. By default, the
+	// Manager owns the Store and closes it after its cleanup worker stops.
+	// Set this to true when multiple managers share the same Store.
+	LeaveStoreOpen bool
 }
 
 func NewManager(cfg Config) *Manager {
@@ -72,6 +81,8 @@ func NewManager(cfg Config) *Manager {
 		cookieDomain:    cfg.CookieDomain,
 		cleanup:         cfg.CleanupInterval,
 		stopChan:        make(chan struct{}),
+		workerDone:      make(chan struct{}),
+		leaveStoreOpen:  cfg.LeaveStoreOpen,
 		httpOnly:        true, // Default
 		secure:          cfg.Secure,
 		sameSite:        http.SameSiteLaxMode, // Default
@@ -102,6 +113,7 @@ func NewManager(cfg Config) *Manager {
 func (m *Manager) cleanupWorker() {
 	ticker := time.NewTicker(m.cleanup)
 	defer ticker.Stop()
+	defer close(m.workerDone)
 
 	for {
 		select {
@@ -115,9 +127,41 @@ func (m *Manager) cleanupWorker() {
 	}
 }
 
+// Close stops the cleanup worker, waits for it to finish, and closes the store
+// when the manager owns it. Close is safe to call multiple times and from
+// concurrent goroutines.
 func (m *Manager) Close() error {
-	close(m.stopChan)
-	return m.store.Close()
+	return m.CloseContext(context.Background())
+}
+
+// CloseContext stops the cleanup worker and waits for it to finish or for ctx
+// to be canceled. A timeout does not close the store while cleanup may still be
+// using it; a later call to Close or CloseContext can complete the shutdown.
+// When LeaveStoreOpen is true, the caller remains responsible for closing the
+// store after all managers that share it have stopped.
+func (m *Manager) CloseContext(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	m.stopOnce.Do(func() {
+		close(m.stopChan)
+	})
+
+	select {
+	case <-m.workerDone:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
+	if m.leaveStoreOpen {
+		return nil
+	}
+
+	m.storeCloseOnce.Do(func() {
+		m.storeCloseErr = m.store.Close()
+	})
+	return m.storeCloseErr
 }
 
 func (m *Manager) Get(r *http.Request) (*Session, error) {

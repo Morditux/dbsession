@@ -48,8 +48,6 @@ func main() {
  if err != nil {
   log.Fatal(err)
  }
- defer store.Close()
-
  // Create session manager with default security settings
  mgr := dbsession.NewManager(dbsession.Config{
   Store: store,
@@ -67,6 +65,33 @@ func main() {
  })
 }
 ```
+
+## Lifecycle and store ownership
+
+By default, a `Manager` owns its configured `Store`. Calling `Manager.Close`
+stops the cleanup worker, waits for it to finish, and then closes the store.
+`Close` is idempotent and safe for concurrent use, so do not also defer
+`store.Close()` in this mode.
+
+When several managers share one store, keep ownership in the caller:
+
+```go
+store, err := dbsession.NewSQLiteStore("sessions.db")
+if err != nil {
+ log.Fatal(err)
+}
+defer store.Close()
+
+mgr := dbsession.NewManager(dbsession.Config{
+ Store:          store,
+ LeaveStoreOpen: true,
+})
+defer mgr.Close()
+```
+
+`CloseContext` can bound how long shutdown waits for an in-progress cleanup.
+If its context expires, the store is deliberately left open; call `Close` or
+`CloseContext` again after cleanup can finish.
 
 ### Advanced Configuration
 

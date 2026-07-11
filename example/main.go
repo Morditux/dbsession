@@ -15,15 +15,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to create store: %v", err)
 	}
-	defer store.Close()
-
 	// Alternative: Initialize PostgreSQL store
 	// store, err := dbsession.NewPostgreSQLStore("postgres://user:password@localhost/dbname?sslmode=disable")
 	// if err != nil {
 	// 	log.Fatalf("failed to create store: %v", err)
 	// }
-	// defer store.Close()
-
 	// Initialize Manager with 1 hour TTL and 5 minutes cleanup interval
 	mgr := dbsession.NewManager(dbsession.Config{
 		Store:           store,

@@ -93,10 +93,10 @@ Mesure réalisée avec `BenchmarkGobDecodeReader`, cinq répétitions sur AMD Ry
 
 **Actions.**
 
-- [ ] Utiliser `sync.Once` pour une fermeture idempotente et un `sync.WaitGroup`/canal `done` pour attendre le worker avant `Store.Close`.
-- [ ] Décider et documenter qui possède le store : soit le manager le ferme, soit l'appelant le ferme, mais pas les deux implicitement.
-- [ ] Envisager `Close(ctx)` afin de borner l'attente d'un nettoyage en cours.
-- [ ] Tester double fermeture, fermeture pendant `Cleanup`, fermeture concurrente et store partagé.
+- [x] Utiliser `sync.Once` pour une fermeture idempotente et un `sync.WaitGroup`/canal `done` pour attendre le worker avant `Store.Close`.
+- [x] Décider et documenter qui possède le store : soit le manager le ferme, soit l'appelant le ferme, mais pas les deux implicitement.
+- [x] Envisager `Close(ctx)` afin de borner l'attente d'un nettoyage en cours.
+- [x] Tester double fermeture, fermeture pendant `Cleanup`, fermeture concurrente et store partagé.
 
 ### P0 — Valider la configuration avant de démarrer une goroutine
 
