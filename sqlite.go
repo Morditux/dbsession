@@ -171,7 +171,7 @@ func (s *SQLiteStore) Get(ctx context.Context, id string) (*Session, error) {
 	if len(data) > 0 {
 		reader := readerPool.Get().(*bytes.Reader)
 		reader.Reset(data)
-		defer readerPool.Put(reader)
+		defer PutReader(reader)
 
 		// data is valid only until next Scan/Close. gob.NewDecoder reads from it immediately.
 		if err := gob.NewDecoder(reader).Decode(&values); err != nil {

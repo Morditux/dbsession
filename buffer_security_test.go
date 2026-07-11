@@ -2,8 +2,62 @@ package dbsession
 
 import (
 	"bytes"
+	"encoding/gob"
 	"testing"
 )
+
+func TestPutReaderReleasesDecodedData(t *testing.T) {
+	reader := bytes.NewReader([]byte("sensitive session data"))
+	if reader.Len() == 0 || reader.Size() == 0 {
+		t.Fatal("sanity check failed: reader does not reference test data")
+	}
+
+	PutReader(reader)
+
+	if reader.Len() != 0 {
+		t.Fatalf("reader still has %d readable bytes after PutReader", reader.Len())
+	}
+	if reader.Size() != 0 {
+		t.Fatalf("reader still references %d bytes after PutReader", reader.Size())
+	}
+}
+
+func BenchmarkGobDecodeReader(b *testing.B) {
+	var encoded bytes.Buffer
+	input := map[string]any{
+		"user_id": 42,
+		"roles":   []string{"user", "admin"},
+		"token":   "representative-session-value",
+	}
+	if err := gob.NewEncoder(&encoded).Encode(input); err != nil {
+		b.Fatal(err)
+	}
+	payload := encoded.Bytes()
+
+	b.Run("pooled", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			reader := readerPool.Get().(*bytes.Reader)
+			reader.Reset(payload)
+			var decoded map[string]any
+			if err := gob.NewDecoder(reader).Decode(&decoded); err != nil {
+				b.Fatal(err)
+			}
+			PutReader(reader)
+		}
+	})
+
+	b.Run("new", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			reader := bytes.NewReader(payload)
+			var decoded map[string]any
+			if err := gob.NewDecoder(reader).Decode(&decoded); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+}
 
 // TestPutBufferVerifier verifies that PutBuffer zeroes out the used portion
 // of the buffer before returning it to the pool.

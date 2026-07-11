@@ -25,6 +25,14 @@ var idBufferPool = sync.Pool{
 	},
 }
 
+// PutReader releases references to the decoded data before returning the
+// reader to the pool. Without the reset, the pool can keep an entire session
+// blob alive even though decoding has completed.
+func PutReader(reader *bytes.Reader) {
+	reader.Reset(nil)
+	readerPool.Put(reader)
+}
+
 // PutBuffer wipes the buffer's content and returns it to the pool.
 // This is a security enhancement to ensure sensitive session data
 // is not retained in memory longer than necessary.

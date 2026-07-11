@@ -156,7 +156,7 @@ func (s *PostgreSQLStore) Get(ctx context.Context, id string) (*Session, error) 
 	if len(data) > 0 {
 		reader := readerPool.Get().(*bytes.Reader)
 		reader.Reset(data)
-		defer readerPool.Put(reader)
+		defer PutReader(reader)
 
 		if err := gob.NewDecoder(reader).Decode(&values); err != nil {
 			return nil, fmt.Errorf("failed to decode session data: %w", err)

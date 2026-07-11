@@ -79,7 +79,7 @@ func (s *MemcachedStore) Get(ctx context.Context, id string) (*Session, error) {
 
 	reader := readerPool.Get().(*bytes.Reader)
 	reader.Reset(item.Value)
-	defer readerPool.Put(reader)
+	defer PutReader(reader)
 
 	if err := gob.NewDecoder(reader).Decode(&env); err != nil {
 		return nil, fmt.Errorf("failed to decode session data: %w", err)

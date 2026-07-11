@@ -79,9 +79,11 @@ Le flux présente trois frontières de confiance :
 
 **Actions.**
 
-- [ ] Avant chaque `readerPool.Put(reader)`, appeler `reader.Reset(nil)` dans un helper unique tel que `PutReader`.
-- [ ] Ajouter un test interne vérifiant que le reader remis au pool a une taille nulle et ne référence plus l'entrée.
-- [ ] Mesurer ensuite si le pool de readers apporte un gain réel ; un `bytes.Reader` est petit et sa mise en pool peut coûter plus qu'elle ne rapporte.
+- [x] Avant chaque `readerPool.Put(reader)`, appeler `reader.Reset(nil)` dans un helper unique tel que `PutReader`.
+- [x] Ajouter un test interne vérifiant que le reader remis au pool a une taille nulle et ne référence plus l'entrée.
+- [x] Mesurer ensuite si le pool de readers apporte un gain réel ; un `bytes.Reader` est petit et sa mise en pool peut coûter plus qu'elle ne rapporte.
+
+Mesure réalisée avec `BenchmarkGobDecodeReader`, cinq répétitions sur AMD Ryzen 5 3600 : les deux variantes prennent environ 18,1–18,4 µs/op. Le pool réduit toutefois systématiquement le coût de 206 à 205 allocations et de 9 024 à 8 980 octets par décodage. Il est donc conservé, avec `PutReader` pour supprimer la référence au blob avant remise au pool.
 
 ### P0 — Sécuriser le cycle de vie de `Manager`
 
